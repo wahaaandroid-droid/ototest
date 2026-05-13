@@ -47,8 +47,24 @@ export class WebAudioFontEngine {
   }
 
   async playGameNote(note: GameNote, track: MidiTrackInfo, when = 0): Promise<ActiveVoice[]> {
-    const duration = note.type === "tap" ? Math.min(Math.max(note.duration, 0.28), 2.2) : Math.max(note.duration, 0.45);
-    return this.playMidiNotes(note.midiNotes, track, when, duration, note.velocity);
+    await this.resume();
+    const baseTime = when > 0 ? when : this.ensureContext().currentTime + 0.005;
+    const events =
+      note.playbackEvents.length > 0
+        ? note.playbackEvents
+        : [{ offset: 0, duration: note.duration, midiNotes: note.midiNotes, velocity: note.velocity }];
+    const voices: ActiveVoice[] = [];
+
+    for (const event of events) {
+      const duration =
+        note.type === "tap" && events.length === 1
+          ? Math.min(Math.max(event.duration, 0.28), 2.2)
+          : Math.max(event.duration, 0.12);
+      const scheduledVoices = await this.playMidiNotes(event.midiNotes, track, baseTime + event.offset, duration, event.velocity);
+      voices.push(...scheduledVoices);
+    }
+
+    return voices;
   }
 
   async playMidiNotes(

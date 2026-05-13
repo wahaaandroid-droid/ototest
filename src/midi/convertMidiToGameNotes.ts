@@ -1,4 +1,4 @@
-import type { Difficulty, GameChart, GameNote, MidiTrackInfo, ParsedNote } from "../game/types";
+import type { Difficulty, GameChart, GameNote, GameNotePlaybackEvent, MidiTrackInfo, ParsedNote } from "../game/types";
 import { detectChordLabel, groupNotesByStartTime } from "./detectChords";
 
 const HOLD_THRESHOLD_SECONDS = 0.65;
@@ -7,25 +7,29 @@ const SINGLE_LANE_LABELS = ["Low", "Mid", "High", "Top"];
 
 type DifficultyProfile = {
   chordGroupWindowMs: number;
-  minGlobalGapSeconds: number;
-  minLaneGapSeconds: number;
+  bundleMaxSpanSeconds: number;
+  bundleMaxGapSeconds: number;
+  bundleMaxEvents: number;
 };
 
 const DIFFICULTY_PROFILES: Record<Difficulty, DifficultyProfile> = {
   easy: {
     chordGroupWindowMs: 140,
-    minGlobalGapSeconds: 0.18,
-    minLaneGapSeconds: 0.32,
+    bundleMaxSpanSeconds: 1.5,
+    bundleMaxGapSeconds: 0.72,
+    bundleMaxEvents: 5,
   },
   normal: {
     chordGroupWindowMs: 100,
-    minGlobalGapSeconds: 0.09,
-    minLaneGapSeconds: 0.2,
+    bundleMaxSpanSeconds: 1,
+    bundleMaxGapSeconds: 0.56,
+    bundleMaxEvents: 3,
   },
   hard: {
     chordGroupWindowMs: CHORD_GROUP_WINDOW_MS,
-    minGlobalGapSeconds: 0,
-    minLaneGapSeconds: 0,
+    bundleMaxSpanSeconds: 0,
+    bundleMaxGapSeconds: 0,
+    bundleMaxEvents: 1,
   },
 };
 
@@ -42,6 +46,7 @@ export function convertMidiTrackToSingleChart(track: MidiTrackInfo, difficulty: 
         duration: note.duration,
         type: isHold ? ("hold" as const) : ("tap" as const),
         midiNotes: [note.midi],
+        playbackEvents: [buildPlaybackEvent([note.midi], 0, note.duration, note.velocity)],
         label: isHold ? "Hold" : SINGLE_LANE_LABELS[lane],
         lane,
         velocity: note.velocity,
@@ -50,7 +55,7 @@ export function convertMidiTrackToSingleChart(track: MidiTrackInfo, difficulty: 
     .sort((a, b) => a.time - b.time);
 
   const spreadNotes = spreadDenseSingleLanes(rawNotes);
-  const notes = thinNotesForDifficulty(spreadNotes, DIFFICULTY_PROFILES[difficulty]);
+  const notes = bundleNotesForDifficulty(spreadNotes, DIFFICULTY_PROFILES[difficulty]);
 
   return {
     notes,
@@ -86,7 +91,7 @@ export function convertMidiTrackToChordChart(track: MidiTrackInfo, difficulty: D
       lane: Math.max(0, lane),
     };
   });
-  const notes = thinNotesForDifficulty(mappedNotes, profile);
+  const notes = bundleNotesForDifficulty(mappedNotes, profile);
 
   return {
     notes,
@@ -110,6 +115,7 @@ function buildChordCandidate(group: ParsedNote[], trackIndex: number, groupIndex
     duration: Math.max(...durations),
     type: midiNotes.length >= 3 ? "chord" : Math.max(...durations) >= HOLD_THRESHOLD_SECONDS ? "hold" : "tap",
     midiNotes,
+    playbackEvents: [buildPlaybackEvent(midiNotes, 0, Math.max(...durations), velocities.reduce((sum, velocity) => sum + velocity, 0) / velocities.length)],
     label,
     lane: 0,
     velocity: velocities.reduce((sum, velocity) => sum + velocity, 0) / velocities.length,
@@ -166,25 +172,68 @@ function spreadDenseSingleLanes(notes: GameNote[]): GameNote[] {
   });
 }
 
-function thinNotesForDifficulty(notes: GameNote[], profile: DifficultyProfile): GameNote[] {
-  if (profile.minGlobalGapSeconds <= 0 && profile.minLaneGapSeconds <= 0) return notes;
+function buildPlaybackEvent(midiNotes: number[], offset: number, duration: number, velocity: number): GameNotePlaybackEvent {
+  return {
+    offset,
+    duration,
+    midiNotes,
+    velocity,
+  };
+}
 
-  const accepted: GameNote[] = [];
-  const lastByLane = new Map<number, number>();
-  let lastGlobal = -999;
+function bundleNotesForDifficulty(notes: GameNote[], profile: DifficultyProfile): GameNote[] {
+  if (profile.bundleMaxEvents <= 1) return notes;
+
+  const bundles: GameNote[][] = [];
+  let current: GameNote[] = [];
 
   for (const note of notes) {
-    const lastLaneTime = lastByLane.get(note.lane) ?? -999;
-    const laneGap = note.time - lastLaneTime;
-    const globalGap = note.time - lastGlobal;
-    const keepForHold = note.type === "hold" && laneGap >= profile.minLaneGapSeconds * 0.55;
+    const first = current[0];
+    const previous = current[current.length - 1];
+    const canBundle =
+      first &&
+      previous &&
+      current.length < profile.bundleMaxEvents &&
+      note.time - first.time <= profile.bundleMaxSpanSeconds &&
+      note.time - previous.time <= profile.bundleMaxGapSeconds;
 
-    if (keepForHold || (laneGap >= profile.minLaneGapSeconds && globalGap >= profile.minGlobalGapSeconds)) {
-      accepted.push(note);
-      lastByLane.set(note.lane, note.time);
-      lastGlobal = note.time;
+    if (!first || canBundle) {
+      current.push(note);
+    } else {
+      bundles.push(current);
+      current = [note];
     }
   }
 
-  return accepted;
+  if (current.length > 0) bundles.push(current);
+  return bundles.map((bundle, index) => buildBundledNote(bundle, index));
+}
+
+function buildBundledNote(bundle: GameNote[], index: number): GameNote {
+  if (bundle.length === 1) return bundle[0];
+
+  const start = bundle[0].time;
+  const playbackEvents = bundle
+    .flatMap((note) =>
+      note.playbackEvents.map((event) => ({
+        ...event,
+        offset: note.time - start + event.offset,
+      })),
+    )
+    .sort((a, b) => a.offset - b.offset);
+  const endTime = Math.max(...playbackEvents.map((event) => event.offset + event.duration));
+  const midiNotes = playbackEvents.flatMap((event) => event.midiNotes);
+  const velocity = playbackEvents.reduce((sum, event) => sum + event.velocity, 0) / playbackEvents.length;
+
+  return {
+    id: `${bundle[0].id}-bundle-${index}`,
+    time: start,
+    duration: Math.max(0.24, endTime),
+    type: "chord",
+    midiNotes,
+    playbackEvents,
+    label: `${bundle[0].label} x${bundle.length}`,
+    lane: bundle[0].lane,
+    velocity,
+  };
 }

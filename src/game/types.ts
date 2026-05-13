@@ -8,6 +8,13 @@ export type Judgement = "Perfect" | "Great" | "Good" | "Miss";
 
 export type GameNoteType = "tap" | "hold" | "chord";
 
+export type GameNotePlaybackEvent = {
+  offset: number;
+  duration: number;
+  midiNotes: number[];
+  velocity: number;
+};
+
 export type TimingSettings = {
   noteVisualOffsetMs: number;
   inputJudgeOffsetMs: number;
@@ -51,6 +58,7 @@ export type GameNote = {
   duration: number;
   type: GameNoteType;
   midiNotes: number[];
+  playbackEvents: GameNotePlaybackEvent[];
   label: string;
   lane: number;
   velocity: number;
