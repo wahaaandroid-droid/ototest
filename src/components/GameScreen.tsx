@@ -6,7 +6,7 @@ import { applyJudgement, buildResult, createInitialScore } from "../game/score";
 import type { GameChart, GameNote, GameResult, Judgement, MidiTrackInfo, ParsedMidiFile, ScoreStats, TimingSettings } from "../game/types";
 import { formatDuration } from "../utils/format";
 import { ChordButtons } from "./ChordButtons";
-import { NoteLane, type HitEffect } from "./NoteLane";
+import { NoteLane, type HitEffect, type LanePressEffect } from "./NoteLane";
 
 type GameScreenProps = {
   midi: ParsedMidiFile;
@@ -18,19 +18,36 @@ type GameScreenProps = {
   onBack: () => void;
 };
 
-type RunState = "ready" | "loading" | "playing" | "paused" | "finished";
+type RunState = "ready" | "loading" | "countdown" | "playing" | "paused" | "finished";
 
 type NoteState = "pending" | "hit" | "miss";
+type TimingDirection = "FAST" | "SLOW";
+type LastJudgeFeedback = {
+  judgement: Judgement | "Ready";
+  timingDirection: TimingDirection | null;
+  deltaMs: number | null;
+};
+
 const KEYBOARD_LABELS = ["A", "S", "D", "F", "J", "K", "L", ";"];
+const COUNTDOWN_STEPS = ["3", "2", "1", "Go"] as const;
+const COUNTDOWN_STEP_MS = 520;
+const LANE_PRESS_EFFECT_MS = 220;
+const FAR_MISS_DIRECTION_LIMIT_MS = 1000;
 
 export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, onBack }: GameScreenProps) {
   const [runState, setRunState] = useState<RunState>("ready");
   const [currentTime, setCurrentTime] = useState(0);
   const [stats, setStats] = useState<ScoreStats>(() => createInitialScore());
   const [noteStates, setNoteStates] = useState<Record<string, NoteState>>(() => buildInitialNoteStates(chart.notes));
-  const [lastJudge, setLastJudge] = useState<Judgement | "Ready">("Ready");
+  const [lastJudgeFeedback, setLastJudgeFeedback] = useState<LastJudgeFeedback>({
+    judgement: "Ready",
+    timingDirection: null,
+    deltaMs: null,
+  });
   const [audioError, setAudioError] = useState<string | null>(null);
   const [hitEffects, setHitEffects] = useState<HitEffect[]>([]);
+  const [lanePressEffects, setLanePressEffects] = useState<LanePressEffect[]>([]);
+  const [countdownLabel, setCountdownLabel] = useState<string | null>(null);
 
   const schedulerRef = useRef<AutoAccompanimentScheduler | null>(null);
   const startedAtRef = useRef(0);
@@ -45,6 +62,11 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
   const runStateRef = useRef<RunState>("ready");
   const hitEffectCounterRef = useRef(0);
   const hitEffectTimersRef = useRef<Set<number>>(new Set());
+  const lanePressEffectCounterRef = useRef(0);
+  const lanePressEffectTimersRef = useRef<Set<number>>(new Set());
+  const countdownTimersRef = useRef<Set<number>>(new Set());
+  const startTokenRef = useRef(0);
+  const mountedRef = useRef(true);
 
   const remaining = Math.max(0, midi.duration - currentTime);
   const playableNotes = chart.notes.length;
@@ -62,6 +84,8 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
   }, [runState]);
 
   useEffect(() => {
+    mountedRef.current = true;
+
     const handleKeyDown = (event: KeyboardEvent) => {
       const lane = keyToLane(event.key, chart.laneLabels.length);
       if (lane === null || pressedKeysRef.current.has(event.key.toLowerCase())) return;
@@ -81,6 +105,8 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
     window.addEventListener("keyup", handleKeyUp);
 
     return () => {
+      mountedRef.current = false;
+      startTokenRef.current += 1;
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
       if (animationRef.current !== null) cancelAnimationFrame(animationRef.current);
@@ -88,30 +114,69 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
       activeHoldsRef.current.forEach((voices) => voices.forEach((voice) => voice.stop()));
       activeHoldsRef.current.clear();
       clearHitEffectTimers();
+      clearLanePressEffectTimers();
+      clearCountdownTimers();
     };
   }, []);
 
   async function startGame(offset = 0) {
+    const token = startTokenRef.current + 1;
+    startTokenRef.current = token;
     setAudioError(null);
     setRunState("loading");
+    setCountdownLabel(null);
+    currentTimeRef.current = offset;
+    setCurrentTime(offset);
     if (offset === 0) {
       clearHitEffectTimers();
+      clearLanePressEffectTimers();
       setHitEffects([]);
+      setLanePressEffects([]);
+      setJudgeFeedback("Ready", null);
     }
 
     try {
       await audio.preloadTrack(playerTrack);
       schedulerRef.current = new AutoAccompanimentScheduler({ audio, tracks: trackRoles, timing });
-      await schedulerRef.current.start(offset);
+      await schedulerRef.current.preload();
+      const shouldStart = await runCountdown(token);
+      if (!shouldStart) return;
+      schedulerRef.current.startPrepared(offset);
       startedAtRef.current = performance.now() - offset * 1000;
       pausedAtRef.current = 0;
       finishedRef.current = false;
       setRunState("playing");
+      setCountdownLabel(null);
       animate();
     } catch (error) {
+      if (token !== startTokenRef.current || !mountedRef.current) return;
       setRunState(offset > 0 ? "paused" : "ready");
       setAudioError(error instanceof Error ? error.message : "音源の初期化に失敗しました。");
     }
+  }
+
+  async function runCountdown(token: number): Promise<boolean> {
+    setCountdownLabel(COUNTDOWN_STEPS[0]);
+    setRunState("countdown");
+
+    for (const step of COUNTDOWN_STEPS) {
+      if (token !== startTokenRef.current || !mountedRef.current) return false;
+      setCountdownLabel(step);
+      await waitCountdownStep(COUNTDOWN_STEP_MS);
+    }
+
+    if (token !== startTokenRef.current || !mountedRef.current) return false;
+    return true;
+  }
+
+  function waitCountdownStep(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = window.setTimeout(() => {
+        countdownTimersRef.current.delete(timer);
+        resolve();
+      }, ms);
+      countdownTimersRef.current.add(timer);
+    });
   }
 
   function pauseGame() {
@@ -149,22 +214,26 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
   function handleLanePress(lane: number) {
     if (runStateRef.current !== "playing") return;
 
+    showLanePressEffect(lane);
     const inputTime = currentTimeRef.current + timing.inputJudgeOffsetMs / 1000;
     const candidate = findCandidateNote(chart.notes, noteStatesRef.current, lane, inputTime);
     if (!candidate) {
-      setLastJudge("Miss");
-      playLaneFeedback(lane, inputTime);
+      const nearest = findNearestLaneNote(chart.notes, lane, inputTime);
+      const nearestDeltaMs = nearest ? notePlaybackDeltaMs(nearest, inputTime) : null;
+      setJudgeFeedback("Miss", nearestDeltaMs !== null && Math.abs(nearestDeltaMs) <= FAR_MISS_DIRECTION_LIMIT_MS ? nearestDeltaMs : null);
+      playLaneFeedback(lane, inputTime, nearest ?? undefined);
       return;
     }
 
-    const judgement = judgeTiming((inputTime - candidate.time) * 1000);
+    const deltaMs = (inputTime - candidate.time) * 1000;
+    const judgement = judgeTiming(deltaMs);
     if (judgement === "Miss") {
-      markNote(candidate, "miss", "Miss");
+      markNote(candidate, "miss", "Miss", deltaMs);
       playLaneFeedback(lane, inputTime, candidate);
       return;
     }
 
-    markNote(candidate, "hit", judgement);
+    markNote(candidate, "hit", judgement, deltaMs);
     handleLaneRelease(lane);
     void audio.playGameNote(candidate, playerTrack).then((voices) => {
       if (candidate.type === "hold") activeHoldsRef.current.set(lane, voices);
@@ -184,7 +253,7 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
     activeHoldsRef.current.delete(lane);
   }
 
-  function markNote(note: GameNote, state: NoteState, judgement: Judgement) {
+  function markNote(note: GameNote, state: NoteState, judgement: Judgement, deltaMs: number | null = null) {
     if (noteStatesRef.current[note.id] !== "pending") return;
     noteStatesRef.current = {
       ...noteStatesRef.current,
@@ -193,10 +262,18 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
     statsRef.current = applyJudgement(statsRef.current, judgement);
     setNoteStates(noteStatesRef.current);
     setStats(statsRef.current);
-    setLastJudge(judgement);
+    setJudgeFeedback(judgement, deltaMs);
     if (state === "hit" && judgement !== "Miss") {
       showHitEffect(note, judgement);
     }
+  }
+
+  function setJudgeFeedback(judgement: Judgement | "Ready", deltaMs: number | null) {
+    setLastJudgeFeedback({
+      judgement,
+      deltaMs,
+      timingDirection: buildTimingDirection(judgement, deltaMs),
+    });
   }
 
   function showHitEffect(note: GameNote, judgement: Exclude<Judgement, "Miss">) {
@@ -216,9 +293,35 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
     hitEffectTimersRef.current.add(timer);
   }
 
+  function showLanePressEffect(lane: number) {
+    const id = `press-${lane}-${lanePressEffectCounterRef.current}`;
+    lanePressEffectCounterRef.current += 1;
+    const effect: LanePressEffect = {
+      id,
+      lane,
+    };
+    setLanePressEffects((current) => [...current.slice(-10), effect]);
+
+    const timer = window.setTimeout(() => {
+      lanePressEffectTimersRef.current.delete(timer);
+      setLanePressEffects((current) => current.filter((item) => item.id !== id));
+    }, LANE_PRESS_EFFECT_MS);
+    lanePressEffectTimersRef.current.add(timer);
+  }
+
   function clearHitEffectTimers() {
     hitEffectTimersRef.current.forEach((timer) => window.clearTimeout(timer));
     hitEffectTimersRef.current.clear();
+  }
+
+  function clearLanePressEffectTimers() {
+    lanePressEffectTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    lanePressEffectTimersRef.current.clear();
+  }
+
+  function clearCountdownTimers() {
+    countdownTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    countdownTimersRef.current.clear();
   }
 
   function markLateMisses(elapsed: number) {
@@ -243,12 +346,14 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
       statsRef.current = nextStats;
       setNoteStates(nextStates);
       setStats(nextStats);
-      setLastJudge("Miss");
+      setJudgeFeedback("Miss", null);
     }
   }
 
   function finishGame() {
     finishedRef.current = true;
+    startTokenRef.current += 1;
+    clearCountdownTimers();
     schedulerRef.current?.stop();
     audio.stopAll();
     if (animationRef.current !== null) cancelAnimationFrame(animationRef.current);
@@ -265,14 +370,27 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
         <HudMetric label="Score" value={String(stats.score)} />
         <HudMetric label="Combo" value={String(stats.combo)} />
         <HudMetric label="Time" value={formatDuration(remaining)} />
-        <button className="ghost-button" type="button" onClick={runState === "playing" ? pauseGame : resumeGame} disabled={runState === "loading"}>
+        <button
+          className="ghost-button"
+          type="button"
+          onClick={runState === "playing" ? pauseGame : resumeGame}
+          disabled={runState === "loading" || runState === "countdown"}
+        >
           {runState === "playing" ? "Pause" : "Play"}
         </button>
       </header>
 
       <section className="judge-strip">
-        <span className={`judge-text ${lastJudge.toLowerCase()}`}>{lastJudge}</span>
-        <span>{playerTrack.name}</span>
+        <div className="judge-main">
+          <span className={`judge-text ${lastJudgeFeedback.judgement.toLowerCase()}`}>{lastJudgeFeedback.judgement}</span>
+          {lastJudgeFeedback.timingDirection ? (
+            <span className={`judge-direction ${lastJudgeFeedback.timingDirection.toLowerCase()}`}>
+              {lastJudgeFeedback.timingDirection}
+              {lastJudgeFeedback.deltaMs !== null ? <small>{Math.round(Math.abs(lastJudgeFeedback.deltaMs))}ms</small> : null}
+            </span>
+          ) : null}
+        </div>
+        <span className="judge-track">{playerTrack.name}</span>
       </section>
 
       <NoteLane
@@ -282,6 +400,7 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
         noteStates={noteStates}
         visualOffsetMs={timing.noteVisualOffsetMs}
         hitEffects={hitEffects}
+        lanePressEffects={lanePressEffects}
       />
 
       {runState === "ready" || runState === "loading" ? (
@@ -298,6 +417,12 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
           <button className="primary-button" type="button" onClick={resumeGame}>
             Resume
           </button>
+        </div>
+      ) : null}
+
+      {runState === "countdown" ? (
+        <div className="ready-overlay countdown-overlay" aria-live="polite">
+          <strong>{countdownLabel}</strong>
         </div>
       ) : null}
 
@@ -358,8 +483,15 @@ function findNearestLaneNote(notes: GameNote[], lane: number, inputTime: number)
 }
 
 function notePlaybackDistance(note: GameNote, inputTime: number): number {
-  if (note.playbackEvents.length === 0) return Math.abs(note.time - inputTime);
-  return Math.min(...note.playbackEvents.map((event) => Math.abs(note.time + event.offset - inputTime)));
+  return Math.abs(notePlaybackDeltaMs(note, inputTime) / 1000);
+}
+
+function notePlaybackDeltaMs(note: GameNote, inputTime: number): number {
+  if (note.playbackEvents.length === 0) return (inputTime - note.time) * 1000;
+  return note.playbackEvents.reduce((bestDelta, event) => {
+    const delta = (inputTime - (note.time + event.offset)) * 1000;
+    return Math.abs(delta) < Math.abs(bestDelta) ? delta : bestDelta;
+  }, Number.POSITIVE_INFINITY);
 }
 
 function buildFeedbackNote(source: GameNote, inputTime: number): GameNote {
@@ -397,4 +529,9 @@ function keyToLane(key: string, laneCount: number): number | null {
   const normalized = key.toLowerCase();
   const lane = KEYBOARD_LABELS.findIndex((label) => label.toLowerCase() === normalized);
   return lane >= 0 && lane < laneCount ? lane : null;
+}
+
+function buildTimingDirection(judgement: Judgement | "Ready", deltaMs: number | null): TimingDirection | null {
+  if (judgement === "Ready" || judgement === "Perfect" || deltaMs === null || deltaMs === 0) return null;
+  return deltaMs < 0 ? "FAST" : "SLOW";
 }

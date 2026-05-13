@@ -14,6 +14,7 @@ type DifficultyProfile = {
   bundleMaxSpanSeconds: number;
   bundleMaxGapSeconds: number;
   bundleMaxEvents: number;
+  minInputGapSeconds: number;
 };
 
 const DIFFICULTY_PROFILES: Record<Difficulty, DifficultyProfile> = {
@@ -22,18 +23,21 @@ const DIFFICULTY_PROFILES: Record<Difficulty, DifficultyProfile> = {
     bundleMaxSpanSeconds: 1.5,
     bundleMaxGapSeconds: 0.72,
     bundleMaxEvents: 5,
+    minInputGapSeconds: 0.35,
   },
   normal: {
     chordGroupWindowMs: 100,
     bundleMaxSpanSeconds: 1,
     bundleMaxGapSeconds: 0.56,
     bundleMaxEvents: 3,
+    minInputGapSeconds: 0.22,
   },
   hard: {
     chordGroupWindowMs: CHORD_GROUP_WINDOW_MS,
     bundleMaxSpanSeconds: 0,
     bundleMaxGapSeconds: 0,
     bundleMaxEvents: 1,
+    minInputGapSeconds: 0,
   },
 };
 
@@ -258,7 +262,7 @@ function buildPlaybackEvent(midiNotes: number[], offset: number, duration: numbe
 }
 
 function bundleNotesForDifficulty(notes: GameNote[], profile: DifficultyProfile): GameNote[] {
-  if (profile.bundleMaxEvents <= 1) return notes;
+  if (profile.bundleMaxEvents <= 1 && profile.minInputGapSeconds <= 0) return notes;
 
   const bundles: GameNote[][] = [];
   let current: GameNote[] = [];
@@ -266,12 +270,14 @@ function bundleNotesForDifficulty(notes: GameNote[], profile: DifficultyProfile)
   for (const note of notes) {
     const first = current[0];
     const previous = current[current.length - 1];
+    const isInsideMinimumInputGap = Boolean(first) && note.time - first.time < profile.minInputGapSeconds;
     const canBundle =
-      first &&
-      previous &&
-      current.length < profile.bundleMaxEvents &&
-      note.time - first.time <= profile.bundleMaxSpanSeconds &&
-      note.time - previous.time <= profile.bundleMaxGapSeconds;
+      isInsideMinimumInputGap ||
+      (first &&
+        previous &&
+        current.length < profile.bundleMaxEvents &&
+        note.time - first.time <= profile.bundleMaxSpanSeconds &&
+        note.time - previous.time <= profile.bundleMaxGapSeconds);
 
     if (!first || canBundle) {
       current.push(note);

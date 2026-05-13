@@ -8,6 +8,11 @@ export type HitEffect = {
   judgement: Exclude<Judgement, "Miss">;
 };
 
+export type LanePressEffect = {
+  id: string;
+  lane: number;
+};
+
 type NoteLaneProps = {
   notes: GameNote[];
   laneLabels: string[];
@@ -15,12 +20,13 @@ type NoteLaneProps = {
   noteStates: Record<string, "pending" | "hit" | "miss">;
   visualOffsetMs: number;
   hitEffects: HitEffect[];
+  lanePressEffects: LanePressEffect[];
 };
 
 const APPROACH_SECONDS = 2.4;
 const NOTE_HEIGHT_PX = 38;
 
-export function NoteLane({ notes, laneLabels, currentTime, noteStates, visualOffsetMs, hitEffects }: NoteLaneProps) {
+export function NoteLane({ notes, laneLabels, currentTime, noteStates, visualOffsetMs, hitEffects, lanePressEffects }: NoteLaneProps) {
   const visibleNotes = getUpcomingNotes(notes, currentTime - visualOffsetMs / 1000, APPROACH_SECONDS);
   const laneWidth = 100 / laneLabels.length;
 
@@ -35,6 +41,22 @@ export function NoteLane({ notes, laneLabels, currentTime, noteStates, visualOff
       {laneLabels.map((label, index) => (
         <div className="lane-column" key={label} style={{ left: `${(100 / laneLabels.length) * index}%` }} />
       ))}
+      {lanePressEffects.map((effect) => {
+        const lane = Math.min(laneLabels.length - 1, Math.max(0, effect.lane));
+        return (
+          <div
+            className="lane-press-flash"
+            key={effect.id}
+            style={
+              {
+                "--hit-lane-left": `${laneWidth * lane}%`,
+                "--hit-lane-width": `${laneWidth}%`,
+              } as CSSProperties
+            }
+            aria-hidden="true"
+          />
+        );
+      })}
       {visibleNotes.map((note) => {
         const state = noteStates[note.id] ?? "pending";
         if (state !== "pending") return null;

@@ -14,23 +14,38 @@ export class AutoAccompanimentScheduler {
   private startPerfMs = 0;
   private offsetSeconds = 0;
   private rafId: number | null = null;
-  private scheduled = new Set<string>();
+  private cursors = new Map<string, number>();
   private voices: ActiveVoice[] = [];
   private running = false;
+  private preloaded = false;
 
   constructor(options: SchedulerOptions) {
     this.audio = options.audio;
-    this.tracks = options.tracks;
+    this.tracks = options.tracks.map((track) => ({
+      ...track,
+      notes: [...track.notes].sort((a, b) => a.time - b.time),
+    }));
     this.timing = options.timing;
   }
 
   async start(offsetSeconds = 0): Promise<void> {
+    await this.preload();
+    this.startPrepared(offsetSeconds);
+  }
+
+  startPrepared(offsetSeconds = 0): void {
     this.stop();
-    await Promise.all(this.tracks.filter((track) => track.role === "auto").map((track) => this.audio.preloadTrack(track)));
     this.running = true;
     this.offsetSeconds = offsetSeconds;
     this.startPerfMs = performance.now() - offsetSeconds * 1000;
+    this.resetCursors(offsetSeconds);
     this.tick();
+  }
+
+  async preload(): Promise<void> {
+    if (this.preloaded) return;
+    await Promise.all(this.tracks.filter((track) => track.role === "auto").map((track) => this.audio.preloadTrack(track)));
+    this.preloaded = true;
   }
 
   stop(): void {
@@ -42,7 +57,7 @@ export class AutoAccompanimentScheduler {
 
     this.voices.forEach((voice) => voice.stop());
     this.voices = [];
-    this.scheduled.clear();
+    this.cursors.clear();
   }
 
   private tick = (): void => {
@@ -55,23 +70,35 @@ export class AutoAccompanimentScheduler {
     for (const track of this.tracks) {
       if (track.role !== "auto") continue;
 
-      for (const note of track.notes) {
-        const scheduleKey = `${track.index}:${note.id}`;
-        if (this.scheduled.has(scheduleKey)) continue;
-        if (note.time < this.offsetSeconds - 0.02) {
-          this.scheduled.add(scheduleKey);
-          continue;
-        }
+      let cursor = this.cursors.get(track.id) ?? 0;
+      while (cursor < track.notes.length) {
+        const note = track.notes[cursor];
+        if (note.time > elapsed + lookAhead) break;
+
+        cursor += 1;
         if (note.time <= elapsed + lookAhead) {
-          this.scheduled.add(scheduleKey);
           const when = contextNow + Math.max(0.015, note.time - elapsed);
           void this.audio.playMidiNotes([note.midi], track, when, note.duration, note.velocity).then((voices) => {
             this.voices.push(...voices);
           });
         }
       }
+      this.cursors.set(track.id, cursor);
     }
 
     this.rafId = requestAnimationFrame(this.tick);
   };
+
+  private resetCursors(offsetSeconds: number): void {
+    this.cursors.clear();
+
+    for (const track of this.tracks) {
+      if (track.role !== "auto") continue;
+      let cursor = 0;
+      while (cursor < track.notes.length && track.notes[cursor].time < offsetSeconds - 0.02) {
+        cursor += 1;
+      }
+      this.cursors.set(track.id, cursor);
+    }
+  }
 }
