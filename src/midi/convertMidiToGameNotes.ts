@@ -306,6 +306,7 @@ function buildBundledNote(bundle: GameNote[], index: number): GameNote {
   const endTime = Math.max(...playbackEvents.map((event) => event.offset + event.duration));
   const midiNotes = playbackEvents.flatMap((event) => event.midiNotes);
   const velocity = playbackEvents.reduce((sum, event) => sum + event.velocity, 0) / playbackEvents.length;
+  const phraseOffsets = [...new Set(playbackEvents.map((event) => Number(event.offset.toFixed(3))))];
 
   return {
     id: `${bundle[0].id}-bundle-${index}`,
@@ -317,5 +318,7 @@ function buildBundledNote(bundle: GameNote[], index: number): GameNote {
     label: `${bundle[0].label} x${bundle.length}`,
     lane: bundle[0].lane,
     velocity,
+    playbackMode: "phrase",
+    phraseOffsets,
   };
 }

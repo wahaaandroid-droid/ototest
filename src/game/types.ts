@@ -1,12 +1,14 @@
 export type TrackRole = "auto" | "player" | "mute";
 
-export type PlayMode = "single" | "chord";
+export type PlayMode = "single" | "chord" | "spark";
 
 export type Difficulty = "easy" | "normal" | "hard";
 
 export type Judgement = "Perfect" | "Great" | "Good" | "Miss";
 
 export type GameNoteType = "tap" | "hold" | "chord";
+
+export type GameNotePlaybackMode = "normal" | "phrase";
 
 export type GameNotePlaybackEvent = {
   offset: number;
@@ -19,6 +21,11 @@ export type TimingSettings = {
   noteVisualOffsetMs: number;
   inputJudgeOffsetMs: number;
   audioScheduleLookAheadMs: number;
+};
+
+export type BackingAudioFile = {
+  name: string;
+  url: string;
 };
 
 export type ParsedNote = {
@@ -44,12 +51,27 @@ export type MidiTrackInfo = {
   role: TrackRole;
 };
 
+export type PlayablePartKind = "recommended" | "lead" | "piano" | "guitar" | "strings" | "bass" | "single";
+
+export type PlayablePart = {
+  id: string;
+  title: string;
+  trackIds: string[];
+  primaryTrackId: string;
+  kind: PlayablePartKind;
+  noteCount: number;
+  density: number;
+  rangeText: string;
+  recommendationScore: number;
+};
+
 export type ParsedMidiFile = {
   name: string;
   bpm: number;
   duration: number;
   trackCount: number;
   tracks: MidiTrackInfo[];
+  playableParts: PlayablePart[];
 };
 
 export type GameNote = {
@@ -62,6 +84,8 @@ export type GameNote = {
   label: string;
   lane: number;
   velocity: number;
+  playbackMode?: GameNotePlaybackMode;
+  phraseOffsets?: number[];
 };
 
 export type GameChart = {

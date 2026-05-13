@@ -55,11 +55,8 @@ export class WebAudioFontEngine {
         : [{ offset: 0, duration: note.duration, midiNotes: note.midiNotes, velocity: note.velocity }];
     const voices: ActiveVoice[] = [];
 
-    for (const event of events) {
-      const duration =
-        note.type === "tap" && events.length === 1
-          ? Math.min(Math.max(event.duration, 0.28), 2.2)
-          : Math.max(event.duration, 0.12);
+    for (const [index, event] of events.entries()) {
+      const duration = resolveGameNoteDuration(note, event, events[index + 1], events.length);
       const scheduledVoices = await this.playMidiNotes(event.midiNotes, track, baseTime + event.offset, duration, event.velocity);
       voices.push(...scheduledVoices);
     }
@@ -98,6 +95,54 @@ export class WebAudioFontEngine {
     });
 
     return voices;
+  }
+
+  async playSparkSfx(lane = 0, when = 0): Promise<void> {
+    await this.resume();
+    const context = this.ensureContext();
+    const targetTime = Math.max(context.currentTime + 0.004, when || context.currentTime + 0.004);
+    const output = context.createGain();
+    output.gain.setValueAtTime(0.0001, targetTime);
+    output.gain.exponentialRampToValueAtTime(0.42, targetTime + 0.012);
+    output.gain.exponentialRampToValueAtTime(0.0001, targetTime + 0.42);
+    output.connect(this.masterGain ?? context.destination);
+
+    const noise = context.createBufferSource();
+    noise.buffer = createSparkNoiseBuffer(context);
+    const highpass = context.createBiquadFilter();
+    highpass.type = "highpass";
+    highpass.frequency.setValueAtTime(3600 + lane * 260, targetTime);
+    const bandpass = context.createBiquadFilter();
+    bandpass.type = "bandpass";
+    bandpass.frequency.setValueAtTime(7200 + lane * 420, targetTime);
+    bandpass.Q.setValueAtTime(1.8, targetTime);
+    noise.connect(highpass);
+    highpass.connect(bandpass);
+    bandpass.connect(output);
+    noise.start(targetTime);
+    noise.stop(targetTime + 0.32);
+
+    const bell = context.createOscillator();
+    const bellGain = context.createGain();
+    bell.type = "triangle";
+    bell.frequency.setValueAtTime(1320 + lane * 85, targetTime);
+    bell.frequency.exponentialRampToValueAtTime(1760 + lane * 110, targetTime + 0.08);
+    bellGain.gain.setValueAtTime(0.0001, targetTime);
+    bellGain.gain.exponentialRampToValueAtTime(0.18, targetTime + 0.01);
+    bellGain.gain.exponentialRampToValueAtTime(0.0001, targetTime + 0.28);
+    bell.connect(bellGain);
+    bellGain.connect(output);
+    bell.start(targetTime);
+    bell.stop(targetTime + 0.3);
+
+    window.setTimeout(() => {
+      noise.disconnect();
+      highpass.disconnect();
+      bandpass.disconnect();
+      bell.disconnect();
+      bellGain.disconnect();
+      output.disconnect();
+    }, 520);
   }
 
   stopAll(): void {
@@ -252,4 +297,41 @@ function waitForWebAudioFontLoad(player: WebAudioFontPlayerInstance): Promise<vo
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function resolveGameNoteDuration(
+  note: GameNote,
+  event: GameNote["playbackEvents"][number],
+  nextEvent: GameNote["playbackEvents"][number] | undefined,
+  eventCount: number,
+): number {
+  const baseDuration =
+    note.type === "tap" && eventCount === 1
+      ? Math.min(Math.max(event.duration, 0.28), 2.2)
+      : Math.max(event.duration, 0.12);
+
+  if (note.playbackMode !== "phrase" || !nextEvent) {
+    return baseDuration;
+  }
+
+  const gap = nextEvent.offset - event.offset;
+  if (gap <= 0 || gap > 0.24) {
+    return baseDuration;
+  }
+
+  return Math.max(baseDuration, gap + 0.075);
+}
+
+function createSparkNoiseBuffer(context: AudioContext): AudioBuffer {
+  const duration = 0.36;
+  const buffer = context.createBuffer(1, Math.floor(context.sampleRate * duration), context.sampleRate);
+  const data = buffer.getChannelData(0);
+
+  for (let index = 0; index < data.length; index += 1) {
+    const progress = index / data.length;
+    const envelope = Math.pow(1 - progress, 2.6);
+    data[index] = (Math.random() * 2 - 1) * envelope;
+  }
+
+  return buffer;
 }

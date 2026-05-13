@@ -352,6 +352,123 @@ h1 {
   background: #111722;
 }
 
+.section-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.section-heading h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  line-height: 1.2;
+}
+
+.section-heading > span {
+  color: var(--ink-muted);
+  font-size: 0.84rem;
+  text-align: right;
+}
+
+.part-panel {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.part-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.part-card {
+  display: grid;
+  min-height: 126px;
+  gap: 7px;
+  padding: 13px;
+  text-align: left;
+  color: #f6f2e8;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015)), var(--panel);
+}
+
+.part-card.active {
+  border-color: rgba(113, 240, 208, 0.72);
+  background:
+    linear-gradient(180deg, rgba(35, 199, 183, 0.18), rgba(35, 199, 183, 0.04)),
+    var(--panel-soft);
+  box-shadow: inset 0 0 0 1px rgba(113, 240, 208, 0.18);
+}
+
+.part-kind {
+  width: fit-content;
+  padding: 3px 8px;
+  color: #07100f;
+  border-radius: 999px;
+  background: var(--accent-strong);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.part-card strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.part-range,
+.part-meta {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-muted);
+  font-size: 0.86rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.raw-heading {
+  margin: 4px 0 2px;
+}
+
+.mp3-panel {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0;
+  padding: 12px;
+  border: 1px solid rgba(243, 179, 77, 0.38);
+  border-radius: 8px;
+  background: rgba(243, 179, 77, 0.08);
+}
+
+.mp3-panel strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-button {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.file-button input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .track-list {
   display: grid;
   gap: 8px;
@@ -465,6 +582,22 @@ h1 {
 .judge-track {
   min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.judge-track-group {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  min-width: 0;
+}
+
+.judge-backing {
+  max-width: min(36vw, 360px);
+  overflow: hidden;
+  color: var(--warm);
+  font-size: 0.78rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -601,6 +734,10 @@ h1 {
   background: var(--warm);
 }
 
+.falling-note.phrase {
+  background: linear-gradient(180deg, #f6c56e, #f0a942);
+}
+
 .falling-note span {
   position: relative;
   z-index: 1;
@@ -609,6 +746,24 @@ h1 {
   padding: 0 6px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.phrase-ticks {
+  position: absolute;
+  z-index: 0;
+  inset: 7px 5px;
+  pointer-events: none;
+}
+
+.phrase-tick {
+  position: absolute;
+  right: 8px;
+  left: 8px;
+  height: 2px;
+  background: rgba(7, 16, 15, 0.5);
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.24);
+  transform: translateY(-50%);
 }
 
 .note-just-mark {
@@ -898,6 +1053,14 @@ h1 {
 @media (max-width: 820px) {
   .setup-controls {
     grid-template-columns: 1fr;
+  }
+
+  .mp3-panel {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .mp3-panel > div {
+    grid-column: 1 / -1;
   }
 
   .track-head {

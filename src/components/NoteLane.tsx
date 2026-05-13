@@ -61,10 +61,12 @@ export function NoteLane({ notes, laneLabels, currentTime, noteStates, visualOff
         const state = noteStates[note.id] ?? "pending";
         if (state !== "pending") return null;
 
+        const isPhrase = note.playbackMode === "phrase" && (note.phraseOffsets?.length ?? 0) > 1;
         const y = timeToYPercent(note.time + visualOffsetMs / 1000, currentTime);
         const holdEndY = timeToYPercent(note.time + note.duration + visualOffsetMs / 1000, currentTime);
         const holdTop = Math.min(y, holdEndY);
         const holdHeight = Math.max(8, Math.abs(y - holdEndY));
+        const phraseHeight = Math.min(96, Math.max(NOTE_HEIGHT_PX, NOTE_HEIGHT_PX + note.duration * 24));
         const noteStyle =
           note.type === "hold"
             ? {
@@ -77,16 +79,17 @@ export function NoteLane({ notes, laneLabels, currentTime, noteStates, visualOff
                 left: `calc(${laneWidth * note.lane}% + 6px)`,
                 width: `calc(${laneWidth}% - 12px)`,
                 top: `${y}%`,
-                minHeight: NOTE_HEIGHT_PX,
+                minHeight: isPhrase ? phraseHeight : NOTE_HEIGHT_PX,
               };
 
         return (
           <div
-            className={`falling-note ${note.type}`}
+            className={`falling-note ${note.type} ${isPhrase ? "phrase" : ""}`}
             key={note.id}
             style={noteStyle}
           >
             {note.type === "hold" ? <i className="note-just-mark" aria-hidden="true" /> : null}
+            {isPhrase ? <PhraseTicks note={note} /> : null}
             <span>{note.label}</span>
           </div>
         );
@@ -110,6 +113,26 @@ export function NoteLane({ notes, laneLabels, currentTime, noteStates, visualOff
         );
       })}
     </div>
+  );
+}
+
+function PhraseTicks({ note }: { note: GameNote }) {
+  const visibleOffsets = (note.phraseOffsets ?? [])
+    .filter((offset) => offset > 0.02 && offset < note.duration - 0.02)
+    .slice(0, 10);
+
+  if (visibleOffsets.length === 0) return null;
+
+  return (
+    <i className="phrase-ticks" aria-hidden="true">
+      {visibleOffsets.map((offset, index) => (
+        <b
+          className="phrase-tick"
+          key={`${note.id}-tick-${index}-${offset}`}
+          style={{ top: `${Math.min(88, Math.max(12, (offset / Math.max(note.duration, 0.01)) * 100))}%` }}
+        />
+      ))}
+    </i>
   );
 }
 

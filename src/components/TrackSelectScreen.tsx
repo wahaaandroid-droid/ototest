@@ -1,17 +1,23 @@
-import type { Difficulty, MidiTrackInfo, ParsedMidiFile, PlayMode, TimingSettings, TrackRole } from "../game/types";
+import type { ChangeEvent } from "react";
+import type { BackingAudioFile, Difficulty, MidiTrackInfo, ParsedMidiFile, PlayablePart, PlayMode, TimingSettings, TrackRole } from "../game/types";
 import { formatDuration } from "../utils/format";
 
 type TrackSelectScreenProps = {
   midi: ParsedMidiFile;
+  selectedPartId: string | null;
   mode: PlayMode;
   difficulty: Difficulty;
   timing: TimingSettings;
+  backingAudio: BackingAudioFile | null;
   busyTrackId: string | null;
   audioError: string | null;
   onModeChange: (mode: PlayMode) => void;
   onDifficultyChange: (difficulty: Difficulty) => void;
+  onPartSelect: (partId: string) => void;
   onRoleChange: (trackId: string, role: TrackRole) => void;
   onPreview: (track: MidiTrackInfo) => void;
+  onBackingAudioSelect: (file: File) => void;
+  onBackingAudioClear: () => void;
   onTimingChange: (timing: TimingSettings) => void;
   onStart: () => void;
   onBack: () => void;
@@ -19,15 +25,20 @@ type TrackSelectScreenProps = {
 
 export function TrackSelectScreen({
   midi,
+  selectedPartId,
   mode,
   difficulty,
   timing,
+  backingAudio,
   busyTrackId,
   audioError,
   onModeChange,
   onDifficultyChange,
+  onPartSelect,
   onRoleChange,
   onPreview,
+  onBackingAudioSelect,
+  onBackingAudioClear,
   onTimingChange,
   onStart,
   onBack,
@@ -55,12 +66,15 @@ export function TrackSelectScreen({
       <section className="setup-controls">
         <div>
           <p className="section-label">Mode</p>
-          <div className="segmented">
+          <div className="segmented three">
             <button className={mode === "single" ? "active" : ""} type="button" onClick={() => onModeChange("single")}>
               単音
             </button>
             <button className={mode === "chord" ? "active" : ""} type="button" onClick={() => onModeChange("chord")}>
               コード
+            </button>
+            <button className={mode === "spark" ? "active" : ""} type="button" onClick={() => onModeChange("spark")}>
+              シャン
             </button>
           </div>
         </div>
@@ -102,7 +116,54 @@ export function TrackSelectScreen({
 
       {audioError && <p className="error-text">{audioError}</p>}
 
+      {mode === "spark" && (
+        <section className="mp3-panel" aria-label="MP3 backing audio">
+          <div>
+            <p className="section-label">MP3 BGM</p>
+            <strong>{backingAudio ? backingAudio.name : "未選択"}</strong>
+          </div>
+          <label className="small-button file-button">
+            MP3選択
+            <input type="file" accept=".mp3,audio/mpeg" onChange={(event) => handleBackingAudioChange(event, onBackingAudioSelect)} />
+          </label>
+          {backingAudio ? (
+            <button className="small-button" type="button" onClick={onBackingAudioClear}>
+              解除
+            </button>
+          ) : null}
+        </section>
+      )}
+
+      {midi.playableParts.length > 0 && (
+        <section className="part-panel" aria-label="Playable part suggestions">
+          <div className="section-heading">
+            <div>
+              <p className="section-label">Playable Parts</p>
+              <h2>おすすめパート</h2>
+            </div>
+            <span>{midi.playableParts.length} candidates</span>
+          </div>
+          <div className="part-grid">
+            {midi.playableParts.map((part) => (
+              <PlayablePartCard
+                key={part.id}
+                part={part}
+                active={part.id === selectedPartId}
+                onSelect={() => onPartSelect(part.id)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="track-list" aria-label="MIDI tracks">
+        <div className="section-heading raw-heading">
+          <div>
+            <p className="section-label">Raw Tracks</p>
+            <h2>詳細トラック調整</h2>
+          </div>
+          <span>自動演奏 / プレイヤー / ミュート</span>
+        </div>
         <div className="track-row track-head">
           <span>No</span>
           <span>Name</span>
@@ -140,6 +201,46 @@ export function TrackSelectScreen({
       </div>
     </main>
   );
+}
+
+function handleBackingAudioChange(event: ChangeEvent<HTMLInputElement>, onSelect: (file: File) => void) {
+  const file = event.target.files?.[0];
+  if (file) onSelect(file);
+  event.target.value = "";
+}
+
+function PlayablePartCard({ part, active, onSelect }: { part: PlayablePart; active: boolean; onSelect: () => void }) {
+  return (
+    <button className={`part-card ${active ? "active" : ""}`} type="button" onClick={onSelect}>
+      <span className="part-kind">{formatPartKind(part.kind)}</span>
+      <strong>{part.title}</strong>
+      <span className="part-range">{part.rangeText}</span>
+      <span className="part-meta">
+        {part.trackIds.length} tracks / {part.noteCount.toLocaleString()} notes / {part.density.toFixed(1)} n/s
+      </span>
+    </button>
+  );
+}
+
+function formatPartKind(kind: PlayablePart["kind"]) {
+  switch (kind) {
+    case "recommended":
+      return "推奨";
+    case "lead":
+      return "メロディ";
+    case "piano":
+      return "鍵盤";
+    case "guitar":
+      return "ギター";
+    case "strings":
+      return "ストリングス";
+    case "bass":
+      return "ベース";
+    case "single":
+      return "単体";
+    default:
+      return kind;
+  }
 }
 
 function Metric({ label, value }: { label: string; value: string }) {

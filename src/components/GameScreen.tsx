@@ -3,7 +3,17 @@ import { AutoAccompanimentScheduler } from "../audio/scheduler";
 import type { ActiveVoice, WebAudioFontEngine } from "../audio/webAudioFontPlayer";
 import { judgeTiming, MISS_GRACE_MS } from "../game/judge";
 import { applyJudgement, buildResult, createInitialScore } from "../game/score";
-import type { GameChart, GameNote, GameResult, Judgement, MidiTrackInfo, ParsedMidiFile, ScoreStats, TimingSettings } from "../game/types";
+import type {
+  BackingAudioFile,
+  GameChart,
+  GameNote,
+  GameResult,
+  Judgement,
+  MidiTrackInfo,
+  ParsedMidiFile,
+  ScoreStats,
+  TimingSettings,
+} from "../game/types";
 import { formatDuration } from "../utils/format";
 import { ChordButtons } from "./ChordButtons";
 import { NoteLane, type HitEffect, type LanePressEffect } from "./NoteLane";
@@ -13,6 +23,7 @@ type GameScreenProps = {
   chart: GameChart;
   playerTrack: MidiTrackInfo;
   audio: WebAudioFontEngine;
+  backingAudio: BackingAudioFile | null;
   timing: TimingSettings;
   onFinish: (result: GameResult) => void;
   onBack: () => void;
@@ -34,7 +45,7 @@ const COUNTDOWN_STEP_MS = 520;
 const LANE_PRESS_EFFECT_MS = 220;
 const FAR_MISS_DIRECTION_LIMIT_MS = 1000;
 
-export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, onBack }: GameScreenProps) {
+export function GameScreen({ midi, chart, playerTrack, audio, backingAudio, timing, onFinish, onBack }: GameScreenProps) {
   const [runState, setRunState] = useState<RunState>("ready");
   const [currentTime, setCurrentTime] = useState(0);
   const [stats, setStats] = useState<ScoreStats>(() => createInitialScore());
@@ -67,16 +78,18 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
   const countdownTimersRef = useRef<Set<number>>(new Set());
   const startTokenRef = useRef(0);
   const mountedRef = useRef(true);
+  const backingAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const remaining = Math.max(0, midi.duration - currentTime);
   const playableNotes = chart.notes.length;
+  const isSparkMode = chart.mode === "spark";
   const trackRoles = useMemo(
     () =>
       midi.tracks.map((track) => ({
         ...track,
-        role: track.id === playerTrack.id ? "player" : track.role,
+        role: isSparkMode ? (track.role === "mute" ? "mute" : "auto") : track.id === playerTrack.id ? "player" : track.role,
       })),
-    [midi.tracks, playerTrack.id],
+    [isSparkMode, midi.tracks, playerTrack.id],
   );
 
   useEffect(() => {
@@ -111,6 +124,7 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
       window.removeEventListener("keyup", handleKeyUp);
       if (animationRef.current !== null) cancelAnimationFrame(animationRef.current);
       schedulerRef.current?.stop();
+      stopBackingAudio(true);
       activeHoldsRef.current.forEach((voices) => voices.forEach((voice) => voice.stop()));
       activeHoldsRef.current.clear();
       clearHitEffectTimers();
@@ -136,12 +150,18 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
     }
 
     try {
-      await audio.preloadTrack(playerTrack);
+      if (isSparkMode) {
+        await prepareBackingAudio(offset);
+        await audio.resume();
+      } else {
+        await audio.preloadTrack(playerTrack);
+      }
       schedulerRef.current = new AutoAccompanimentScheduler({ audio, tracks: trackRoles, timing });
       await schedulerRef.current.preload();
       const shouldStart = await runCountdown(token);
       if (!shouldStart) return;
       schedulerRef.current.startPrepared(offset);
+      await startBackingAudio(offset);
       startedAtRef.current = performance.now() - offset * 1000;
       pausedAtRef.current = 0;
       finishedRef.current = false;
@@ -150,6 +170,8 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
       animate();
     } catch (error) {
       if (token !== startTokenRef.current || !mountedRef.current) return;
+      schedulerRef.current?.stop();
+      stopBackingAudio(true);
       setRunState(offset > 0 ? "paused" : "ready");
       setAudioError(error instanceof Error ? error.message : "音源の初期化に失敗しました。");
     }
@@ -183,6 +205,7 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
     if (runState !== "playing") return;
     pausedAtRef.current = currentTimeRef.current;
     schedulerRef.current?.stop();
+    pauseBackingAudio();
     if (animationRef.current !== null) cancelAnimationFrame(animationRef.current);
     setRunState("paused");
   }
@@ -221,7 +244,7 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
       const nearest = findNearestLaneNote(chart.notes, lane, inputTime);
       const nearestDeltaMs = nearest ? notePlaybackDeltaMs(nearest, inputTime) : null;
       setJudgeFeedback("Miss", nearestDeltaMs !== null && Math.abs(nearestDeltaMs) <= FAR_MISS_DIRECTION_LIMIT_MS ? nearestDeltaMs : null);
-      playLaneFeedback(lane, inputTime, nearest ?? undefined);
+      if (!isSparkMode) playLaneFeedback(lane, inputTime, nearest ?? undefined);
       return;
     }
 
@@ -229,15 +252,19 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
     const judgement = judgeTiming(deltaMs);
     if (judgement === "Miss") {
       markNote(candidate, "miss", "Miss", deltaMs);
-      playLaneFeedback(lane, inputTime, candidate);
+      if (!isSparkMode) playLaneFeedback(lane, inputTime, candidate);
       return;
     }
 
     markNote(candidate, "hit", judgement, deltaMs);
     handleLaneRelease(lane);
-    void audio.playGameNote(candidate, playerTrack).then((voices) => {
-      if (candidate.type === "hold") activeHoldsRef.current.set(lane, voices);
-    });
+    if (isSparkMode) {
+      void audio.playSparkSfx(lane);
+    } else {
+      void audio.playGameNote(candidate, playerTrack).then((voices) => {
+        if (candidate.type === "hold") activeHoldsRef.current.set(lane, voices);
+      });
+    }
   }
 
   function playLaneFeedback(lane: number, inputTime: number, preferredNote?: GameNote) {
@@ -324,6 +351,69 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
     countdownTimersRef.current.clear();
   }
 
+  async function prepareBackingAudio(offset: number): Promise<void> {
+    const element = ensureBackingAudioElement();
+    if (!element) return;
+
+    try {
+      element.pause();
+      seekBackingAudio(element, offset);
+      element.volume = 0;
+      await element.play();
+      element.pause();
+      seekBackingAudio(element, offset);
+      element.volume = 0.82;
+    } catch (error) {
+      element.volume = 0.82;
+      throw new Error(error instanceof Error ? `MP3を再生準備できませんでした: ${error.message}` : "MP3を再生準備できませんでした。");
+    }
+  }
+
+  async function startBackingAudio(offset: number): Promise<void> {
+    const element = ensureBackingAudioElement();
+    if (!element) return;
+
+    try {
+      seekBackingAudio(element, offset);
+      element.volume = 0.82;
+      await element.play();
+    } catch (error) {
+      throw new Error(error instanceof Error ? `MP3を再生できませんでした: ${error.message}` : "MP3を再生できませんでした。");
+    }
+  }
+
+  function ensureBackingAudioElement(): HTMLAudioElement | null {
+    if (!isSparkMode || !backingAudio) return null;
+    if (backingAudioRef.current?.src === backingAudio.url) return backingAudioRef.current;
+
+    stopBackingAudio(true);
+    const element = new Audio(backingAudio.url);
+    element.preload = "auto";
+    element.crossOrigin = "anonymous";
+    backingAudioRef.current = element;
+    return element;
+  }
+
+  function pauseBackingAudio() {
+    backingAudioRef.current?.pause();
+  }
+
+  function stopBackingAudio(resetTime = false) {
+    const element = backingAudioRef.current;
+    if (!element) return;
+    element.pause();
+    if (resetTime) seekBackingAudio(element, 0);
+  }
+
+  function seekBackingAudio(element: HTMLAudioElement, offset: number) {
+    try {
+      const maxTime = Number.isFinite(element.duration) && element.duration > 0 ? Math.max(0, element.duration - 0.05) : offset;
+      element.currentTime = Math.min(Math.max(0, offset), maxTime);
+    } catch {
+      // Some browsers reject seeking before metadata is ready; playback can still start from 0.
+    }
+  }
+
   function markLateMisses(elapsed: number) {
     let changed = false;
     let nextStates = noteStatesRef.current;
@@ -355,6 +445,7 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
     startTokenRef.current += 1;
     clearCountdownTimers();
     schedulerRef.current?.stop();
+    stopBackingAudio(true);
     audio.stopAll();
     if (animationRef.current !== null) cancelAnimationFrame(animationRef.current);
     setRunState("finished");
@@ -390,7 +481,10 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
             </span>
           ) : null}
         </div>
-        <span className="judge-track">{playerTrack.name}</span>
+        <div className="judge-track-group">
+          <span className="judge-track">{playerTrack.name}</span>
+          {isSparkMode && backingAudio ? <span className="judge-backing">MP3: {backingAudio.name}</span> : null}
+        </div>
       </section>
 
       <NoteLane
@@ -522,6 +616,8 @@ function buildFeedbackNote(source: GameNote, inputTime: number): GameNote {
       },
     ],
     velocity: event.velocity,
+    playbackMode: "normal",
+    phraseOffsets: undefined,
   };
 }
 

@@ -1,5 +1,6 @@
 import { Midi } from "@tonejs/midi";
 import type { MidiTrackInfo, ParsedMidiFile, ParsedNote, TrackRole } from "../game/types";
+import { buildPlayableParts, scorePlayerCandidate } from "./buildPlayableParts";
 
 export async function loadMidiFile(file: File): Promise<ParsedMidiFile> {
   const buffer = await file.arrayBuffer();
@@ -59,15 +60,15 @@ export function parseMidiBuffer(buffer: ArrayBuffer, fallbackName: string): Pars
     };
   });
 
-  const playerIndex = findSuggestedPlayerTrackIndex(tracks);
-  const tracksWithRoles = tracks.map((track, index) => ({
-    ...track,
-    role: (index === playerIndex ? "player" : "auto") as TrackRole,
-  }));
-
   const durationFromNotes = Math.max(0, ...tracks.flatMap((track) => track.notes.map((note) => note.time + note.duration)));
   const duration = Math.max(anyMidi.duration ?? 0, durationFromNotes);
   const title = anyMidi.name || anyMidi.header?.name || fallbackName || "Untitled MIDI";
+  const playableParts = buildPlayableParts(tracks, duration);
+  const suggestedTrackIds = new Set(playableParts[0]?.trackIds ?? [tracks[findSuggestedPlayerTrackIndex(tracks)]?.id].filter(Boolean));
+  const tracksWithRoles = tracks.map((track) => ({
+    ...track,
+    role: (suggestedTrackIds.has(track.id) ? "player" : "auto") as TrackRole,
+  }));
 
   return {
     name: title,
@@ -75,6 +76,7 @@ export function parseMidiBuffer(buffer: ArrayBuffer, fallbackName: string): Pars
     duration,
     trackCount: tracks.length,
     tracks: tracksWithRoles,
+    playableParts,
   };
 }
 
@@ -88,17 +90,6 @@ function findSuggestedPlayerTrackIndex(tracks: MidiTrackInfo[]): number {
     });
 
   return melodicTracks[0]?.index ?? tracks.find((track) => track.noteCount > 0)?.index ?? 0;
-}
-
-function scorePlayerCandidate(track: MidiTrackInfo): number {
-  const name = `${track.name} ${track.instrumentName}`.toLowerCase();
-  let score = Math.min(track.noteCount, 1200) / 20;
-  if (name.includes("guitar")) score += 35;
-  if (name.includes("lead") || name.includes("melody") || name.includes("vocal")) score += 30;
-  if (name.includes("piano")) score += 16;
-  if (name.includes("bass")) score -= 12;
-  if (track.rangeText.includes("-")) score += 4;
-  return score;
 }
 
 function buildRangeText(notes: ParsedNote[]): string {
