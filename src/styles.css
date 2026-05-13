@@ -591,12 +591,6 @@ h1 {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55);
 }
 
-.falling-note.tap .note-just-mark,
-.falling-note.chord .note-just-mark {
-  top: 50%;
-  transform: translateY(-50%);
-}
-
 .falling-note.hold .note-just-mark {
   bottom: 0;
   height: 7px;
@@ -629,6 +623,20 @@ h1 {
   user-select: none;
 }
 
+.lane-button.left-hand {
+  border-color: rgba(113, 240, 208, 0.42);
+  background:
+    linear-gradient(180deg, rgba(113, 240, 208, 0.15), rgba(35, 199, 183, 0.04)),
+    #253a45;
+}
+
+.lane-button.right-hand {
+  border-color: rgba(243, 179, 77, 0.5);
+  background:
+    linear-gradient(180deg, rgba(243, 179, 77, 0.18), rgba(243, 179, 77, 0.04)),
+    #413329;
+}
+
 .lane-button span {
   min-width: 0;
   max-width: 100%;
@@ -649,9 +657,31 @@ h1 {
   font-weight: 900;
 }
 
+.lane-button.left-hand kbd {
+  color: var(--accent-strong);
+  border-color: rgba(113, 240, 208, 0.38);
+}
+
+.lane-button.right-hand kbd {
+  color: #ffd28a;
+  border-color: rgba(243, 179, 77, 0.44);
+}
+
 .lane-button:active {
   transform: translateY(2px);
   background: #365066;
+}
+
+.lane-button.left-hand:active {
+  background:
+    linear-gradient(180deg, rgba(113, 240, 208, 0.28), rgba(35, 199, 183, 0.08)),
+    #315466;
+}
+
+.lane-button.right-hand:active {
+  background:
+    linear-gradient(180deg, rgba(243, 179, 77, 0.3), rgba(243, 179, 77, 0.08)),
+    #5a402c;
 }
 
 .ready-overlay {

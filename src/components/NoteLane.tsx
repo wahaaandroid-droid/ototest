@@ -57,7 +57,7 @@ export function NoteLane({ notes, laneLabels, currentTime, noteStates, visualOff
             key={note.id}
             style={noteStyle}
           >
-            <i className="note-just-mark" aria-hidden="true" />
+            {note.type === "hold" ? <i className="note-just-mark" aria-hidden="true" /> : null}
             <span>{note.label}</span>
           </div>
         );

@@ -21,7 +21,7 @@ type GameScreenProps = {
 type RunState = "ready" | "loading" | "playing" | "paused" | "finished";
 
 type NoteState = "pending" | "hit" | "miss";
-const KEYBOARD_LABELS = ["A", "S", "D", "F", "J", "K"];
+const KEYBOARD_LABELS = ["A", "S", "D", "F", "J", "K", "L", ";"];
 
 export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, onBack }: GameScreenProps) {
   const [runState, setRunState] = useState<RunState>("ready");
@@ -145,12 +145,14 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
     const candidate = findCandidateNote(chart.notes, noteStatesRef.current, lane, inputTime);
     if (!candidate) {
       setLastJudge("Miss");
+      playLaneFeedback(lane, inputTime);
       return;
     }
 
     const judgement = judgeTiming((inputTime - candidate.time) * 1000);
     if (judgement === "Miss") {
       markNote(candidate, "miss", "Miss");
+      playLaneFeedback(lane, inputTime, candidate);
       return;
     }
 
@@ -159,6 +161,12 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
     void audio.playGameNote(candidate, playerTrack).then((voices) => {
       if (candidate.type === "hold") activeHoldsRef.current.set(lane, voices);
     });
+  }
+
+  function playLaneFeedback(lane: number, inputTime: number, preferredNote?: GameNote) {
+    const source = preferredNote ?? findNearestLaneNote(chart.notes, lane, inputTime);
+    if (!source) return;
+    void audio.playGameNote(buildFeedbackNote(source, inputTime), playerTrack);
   }
 
   function handleLaneRelease(lane: number) {
@@ -297,6 +305,58 @@ function findCandidateNote(notes: GameNote[], states: Record<string, NoteState>,
   }
 
   return bestDiff <= 0.28 ? best : null;
+}
+
+function findNearestLaneNote(notes: GameNote[], lane: number, inputTime: number): GameNote | null {
+  let best: GameNote | null = null;
+  let bestDiff = Number.POSITIVE_INFINITY;
+
+  for (const note of notes) {
+    if (note.lane !== lane) continue;
+    const diff = notePlaybackDistance(note, inputTime);
+    if (diff < bestDiff) {
+      best = note;
+      bestDiff = diff;
+    }
+  }
+
+  return best;
+}
+
+function notePlaybackDistance(note: GameNote, inputTime: number): number {
+  if (note.playbackEvents.length === 0) return Math.abs(note.time - inputTime);
+  return Math.min(...note.playbackEvents.map((event) => Math.abs(note.time + event.offset - inputTime)));
+}
+
+function buildFeedbackNote(source: GameNote, inputTime: number): GameNote {
+  const fallbackEvent = {
+    offset: 0,
+    duration: source.duration,
+    midiNotes: source.midiNotes,
+    velocity: source.velocity,
+  };
+  const event = (source.playbackEvents.length > 0 ? source.playbackEvents : [fallbackEvent]).reduce((best, next) =>
+    Math.abs(source.time + next.offset - inputTime) < Math.abs(source.time + best.offset - inputTime) ? next : best,
+  );
+  const duration = Math.min(Math.max(event.duration, 0.18), 0.58);
+
+  return {
+    ...source,
+    id: `${source.id}-feedback`,
+    time: inputTime,
+    duration,
+    type: "tap",
+    midiNotes: event.midiNotes,
+    playbackEvents: [
+      {
+        offset: 0,
+        duration,
+        midiNotes: event.midiNotes,
+        velocity: event.velocity,
+      },
+    ],
+    velocity: event.velocity,
+  };
 }
 
 function keyToLane(key: string, laneCount: number): number | null {

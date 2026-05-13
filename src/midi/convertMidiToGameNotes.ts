@@ -4,6 +4,10 @@ import { detectChordLabel, groupNotesByStartTime } from "./detectChords";
 const HOLD_THRESHOLD_SECONDS = 0.65;
 const CHORD_GROUP_WINDOW_MS = 80;
 const SINGLE_LANE_LABELS = ["Low", "Mid", "High", "Top"];
+const CHORD_MODE_BASE_MIN_LANES = 4;
+const CHORD_MODE_MELODY_MIN_LANES = 6;
+const CHORD_MODE_MAX_LANES = 6;
+const CHORD_MELODY_LANE_LABELS = ["Melody 1", "Melody 2", "Melody 3", "Melody 4"];
 
 type DifficultyProfile = {
   chordGroupWindowMs: number;
@@ -67,9 +71,10 @@ export function convertMidiTrackToSingleChart(track: MidiTrackInfo, difficulty: 
 
 export function convertMidiTrackToChordChart(track: MidiTrackInfo, difficulty: Difficulty): GameChart {
   const profile = DIFFICULTY_PROFILES[difficulty];
+  const trackRange = buildTrackRange(track.notes);
   const groups = groupNotesByStartTime(track.notes, profile.chordGroupWindowMs)
     .filter((group) => group.length > 0)
-    .map((group, index) => buildChordCandidate(group, track.index, index));
+    .map((group, index) => buildChordCandidate(group, track.index, index, trackRange));
 
   const counts = new Map<string, number>();
   for (const note of groups) {
@@ -79,19 +84,23 @@ export function convertMidiTrackToChordChart(track: MidiTrackInfo, difficulty: D
   const rankedLabels = [...counts.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([label]) => label);
-  const hasOverflow = rankedLabels.length > 6;
+  const hasOverflow = rankedLabels.length > CHORD_MODE_MAX_LANES;
   const laneLabels = hasOverflow ? [...rankedLabels.slice(0, 5), "Other"] : rankedLabels.slice(0, 6);
-  const safeLaneLabels = laneLabels.length > 0 ? laneLabels : ["C"];
+  const hasMelodyNotes = groups.some((note) => note.type !== "chord");
+  const minimumLaneCount = hasMelodyNotes ? CHORD_MODE_MELODY_MIN_LANES : CHORD_MODE_BASE_MIN_LANES;
+  const safeLaneLabels = padChordLaneLabels(laneLabels.length > 0 ? laneLabels : ["C"], minimumLaneCount);
 
   const mappedNotes = groups.map((note) => {
-    const lane = safeLaneLabels.includes(note.label) ? safeLaneLabels.indexOf(note.label) : safeLaneLabels.indexOf("Other");
+    const knownLane = safeLaneLabels.includes(note.label) ? safeLaneLabels.indexOf(note.label) : safeLaneLabels.indexOf("Other");
+    const lane = note.type === "chord" ? knownLane : laneForMidiAcrossLanes(note.midiNotes[0], trackRange, safeLaneLabels.length);
     return {
       ...note,
-      label: lane === safeLaneLabels.indexOf("Other") && !safeLaneLabels.includes(note.label) ? "Other" : note.label,
+      label: note.type === "chord" && lane === safeLaneLabels.indexOf("Other") && !safeLaneLabels.includes(note.label) ? "Other" : note.label,
       lane: Math.max(0, lane),
     };
   });
-  const notes = bundleNotesForDifficulty(mappedNotes, profile);
+  const scatteredNotes = spreadChordMelodyLanes(mappedNotes, safeLaneLabels.length);
+  const notes = bundleNotesForDifficulty(scatteredNotes, profile);
 
   return {
     notes,
@@ -101,13 +110,18 @@ export function convertMidiTrackToChordChart(track: MidiTrackInfo, difficulty: D
   };
 }
 
-function buildChordCandidate(group: ParsedNote[], trackIndex: number, groupIndex: number): GameNote {
+function buildChordCandidate(
+  group: ParsedNote[],
+  trackIndex: number,
+  groupIndex: number,
+  trackRange: { min: number; max: number },
+): GameNote {
   const sorted = [...group].sort((a, b) => a.midi - b.midi);
   const midiNotes = sorted.map((note) => note.midi);
   const starts = sorted.map((note) => note.time);
   const durations = sorted.map((note) => note.duration);
   const velocities = sorted.map((note) => note.velocity);
-  const label = midiNotes.length >= 3 ? detectChordLabel(midiNotes) : SINGLE_LANE_LABELS[laneForMidi(midiNotes[0], buildTrackRange(sorted))];
+  const label = midiNotes.length >= 3 ? detectChordLabel(midiNotes) : SINGLE_LANE_LABELS[laneForMidi(midiNotes[0], trackRange)];
 
   return {
     id: `chord-${trackIndex}-${groupIndex}`,
@@ -135,6 +149,16 @@ function laneForMidi(midi: number, range: { min: number; max: number }): number 
   const rangeLane = Math.min(3, Math.max(0, Math.floor(((midi - range.min) / span) * 4)));
   const pitchColor = [0, 1, 1, 2, 2, 3, 3, 0, 1, 2, 3, 0][midi % 12];
   return Math.min(3, Math.max(0, Math.round(rangeLane * 0.68 + pitchColor * 0.32)));
+}
+
+function laneForMidiAcrossLanes(midi: number, range: { min: number; max: number }, laneCount: number): number {
+  if (laneCount <= 1) return 0;
+  if (laneCount <= 4) return Math.min(laneCount - 1, laneForMidi(midi, range));
+
+  const span = Math.max(1, range.max - range.min + 1);
+  const rangeLane = Math.min(laneCount - 1, Math.max(0, Math.floor(((midi - range.min) / span) * laneCount)));
+  const pitchLane = midi % laneCount;
+  return Math.min(laneCount - 1, Math.max(0, Math.round(rangeLane * 0.72 + pitchLane * 0.28)));
 }
 
 function spreadDenseSingleLanes(notes: GameNote[]): GameNote[] {
@@ -170,6 +194,58 @@ function spreadDenseSingleLanes(notes: GameNote[]): GameNote[] {
       label: note.type === "hold" ? "Hold" : SINGLE_LANE_LABELS[lane],
     };
   });
+}
+
+function spreadChordMelodyLanes(notes: GameNote[], laneCount: number): GameNote[] {
+  if (laneCount <= 1) return notes;
+
+  const recentByLane = Array.from({ length: laneCount }, () => -999);
+  let previousLane = -1;
+  let repeatCount = 0;
+
+  return notes.map((note) => {
+    let lane = note.lane;
+    if (lane === previousLane) {
+      repeatCount += 1;
+    } else {
+      repeatCount = 0;
+    }
+
+    if (note.type !== "chord") {
+      const tooClose = note.time - recentByLane[lane] < 0.22;
+      if (tooClose || repeatCount >= 2) {
+        lane = chooseFreshLane(lane, recentByLane, note.time, laneCount, note.midiNotes[0]);
+      }
+    }
+
+    recentByLane[lane] = note.time;
+    previousLane = lane;
+    return {
+      ...note,
+      lane,
+    };
+  });
+}
+
+function chooseFreshLane(currentLane: number, recentByLane: number[], time: number, laneCount: number, midi: number): number {
+  const candidates = Array.from({ length: laneCount }, (_, lane) => lane)
+    .filter((lane) => lane !== currentLane)
+    .sort((a, b) => {
+      const freshness = recentByLane[a] - recentByLane[b];
+      if (freshness !== 0) return freshness;
+      return Math.abs((midi % laneCount) - a) - Math.abs((midi % laneCount) - b);
+    });
+
+  return candidates.find((lane) => time - recentByLane[lane] >= 0.16) ?? candidates[0] ?? currentLane;
+}
+
+function padChordLaneLabels(labels: string[], minimumLaneCount: number): string[] {
+  const padded = labels.slice(0, CHORD_MODE_MAX_LANES);
+  for (const label of CHORD_MELODY_LANE_LABELS) {
+    if (padded.length >= minimumLaneCount) break;
+    if (!padded.includes(label)) padded.push(label);
+  }
+  return padded;
 }
 
 function buildPlaybackEvent(midiNotes: number[], offset: number, duration: number, velocity: number): GameNotePlaybackEvent {
