@@ -1,6 +1,12 @@
 import type { CSSProperties } from "react";
-import type { GameNote } from "../game/types";
+import type { GameNote, Judgement } from "../game/types";
 import { getUpcomingNotes } from "../game/GameEngine";
+
+export type HitEffect = {
+  id: string;
+  lane: number;
+  judgement: Exclude<Judgement, "Miss">;
+};
 
 type NoteLaneProps = {
   notes: GameNote[];
@@ -8,13 +14,15 @@ type NoteLaneProps = {
   currentTime: number;
   noteStates: Record<string, "pending" | "hit" | "miss">;
   visualOffsetMs: number;
+  hitEffects: HitEffect[];
 };
 
 const APPROACH_SECONDS = 2.4;
 const NOTE_HEIGHT_PX = 38;
 
-export function NoteLane({ notes, laneLabels, currentTime, noteStates, visualOffsetMs }: NoteLaneProps) {
+export function NoteLane({ notes, laneLabels, currentTime, noteStates, visualOffsetMs, hitEffects }: NoteLaneProps) {
   const visibleNotes = getUpcomingNotes(notes, currentTime - visualOffsetMs / 1000, APPROACH_SECONDS);
+  const laneWidth = 100 / laneLabels.length;
 
   return (
     <div className="lane-stage" style={{ "--lane-count": laneLabels.length } as CSSProperties}>
@@ -32,7 +40,6 @@ export function NoteLane({ notes, laneLabels, currentTime, noteStates, visualOff
         if (state !== "pending") return null;
 
         const y = timeToYPercent(note.time + visualOffsetMs / 1000, currentTime);
-        const laneWidth = 100 / laneLabels.length;
         const holdEndY = timeToYPercent(note.time + note.duration + visualOffsetMs / 1000, currentTime);
         const holdTop = Math.min(y, holdEndY);
         const holdHeight = Math.max(8, Math.abs(y - holdEndY));
@@ -59,6 +66,24 @@ export function NoteLane({ notes, laneLabels, currentTime, noteStates, visualOff
           >
             {note.type === "hold" ? <i className="note-just-mark" aria-hidden="true" /> : null}
             <span>{note.label}</span>
+          </div>
+        );
+      })}
+      {hitEffects.map((effect) => {
+        const lane = Math.min(laneLabels.length - 1, Math.max(0, effect.lane));
+        return (
+          <div
+            className={`hit-burst ${effect.judgement.toLowerCase()}`}
+            key={effect.id}
+            style={
+              {
+                "--hit-lane-left": `${laneWidth * lane}%`,
+                "--hit-lane-width": `${laneWidth}%`,
+              } as CSSProperties
+            }
+            aria-hidden="true"
+          >
+            <span>{effect.judgement}</span>
           </div>
         );
       })}

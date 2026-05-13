@@ -596,6 +596,115 @@ h1 {
   height: 7px;
 }
 
+.hit-burst {
+  position: absolute;
+  left: calc(var(--hit-lane-left) + 8px);
+  bottom: 10%;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: calc(var(--hit-lane-width) - 16px);
+  height: 56px;
+  --hit-color: var(--accent-strong);
+  color: var(--hit-color);
+  pointer-events: none;
+  transform: translateY(50%);
+  animation: hit-burst-lift 620ms ease-out forwards;
+}
+
+.hit-burst::before {
+  content: "";
+  position: absolute;
+  width: min(74px, 88%);
+  aspect-ratio: 1;
+  border: 3px solid currentColor;
+  border-radius: 999px;
+  box-shadow:
+    0 0 18px currentColor,
+    inset 0 0 18px rgba(255, 255, 255, 0.34);
+  animation: hit-ring-pop 620ms ease-out forwards;
+}
+
+.hit-burst::after {
+  content: "";
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow:
+    -28px -12px 0 currentColor,
+    -18px 15px 0 currentColor,
+    0 -25px 0 currentColor,
+    18px 15px 0 currentColor,
+    28px -12px 0 currentColor;
+  animation: hit-sparks 620ms ease-out forwards;
+}
+
+.hit-burst span {
+  position: relative;
+  z-index: 1;
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: #07100f;
+  background: var(--hit-color);
+  box-shadow: 0 0 16px var(--hit-color);
+  font-size: clamp(0.68rem, 3.3vw, 0.82rem);
+  font-weight: 950;
+}
+
+.hit-burst.great {
+  --hit-color: var(--good);
+}
+
+.hit-burst.good {
+  --hit-color: var(--warm);
+}
+
+@keyframes hit-burst-lift {
+  0% {
+    opacity: 0;
+    transform: translateY(50%) scale(0.74);
+  }
+
+  16% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-10px) scale(1.08);
+  }
+}
+
+@keyframes hit-ring-pop {
+  0% {
+    opacity: 0.95;
+    transform: scale(0.42);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.28);
+  }
+}
+
+@keyframes hit-sparks {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+
+  24% {
+    opacity: 0.95;
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.65);
+  }
+}
+
 .input-buttons {
   display: grid;
   grid-template-columns: repeat(var(--button-count), minmax(0, 1fr));

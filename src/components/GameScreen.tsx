@@ -6,7 +6,7 @@ import { applyJudgement, buildResult, createInitialScore } from "../game/score";
 import type { GameChart, GameNote, GameResult, Judgement, MidiTrackInfo, ParsedMidiFile, ScoreStats, TimingSettings } from "../game/types";
 import { formatDuration } from "../utils/format";
 import { ChordButtons } from "./ChordButtons";
-import { NoteLane } from "./NoteLane";
+import { NoteLane, type HitEffect } from "./NoteLane";
 
 type GameScreenProps = {
   midi: ParsedMidiFile;
@@ -30,6 +30,7 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
   const [noteStates, setNoteStates] = useState<Record<string, NoteState>>(() => buildInitialNoteStates(chart.notes));
   const [lastJudge, setLastJudge] = useState<Judgement | "Ready">("Ready");
   const [audioError, setAudioError] = useState<string | null>(null);
+  const [hitEffects, setHitEffects] = useState<HitEffect[]>([]);
 
   const schedulerRef = useRef<AutoAccompanimentScheduler | null>(null);
   const startedAtRef = useRef(0);
@@ -42,6 +43,8 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
   const finishedRef = useRef(false);
   const pressedKeysRef = useRef<Set<string>>(new Set());
   const runStateRef = useRef<RunState>("ready");
+  const hitEffectCounterRef = useRef(0);
+  const hitEffectTimersRef = useRef<Set<number>>(new Set());
 
   const remaining = Math.max(0, midi.duration - currentTime);
   const playableNotes = chart.notes.length;
@@ -84,12 +87,17 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
       schedulerRef.current?.stop();
       activeHoldsRef.current.forEach((voices) => voices.forEach((voice) => voice.stop()));
       activeHoldsRef.current.clear();
+      clearHitEffectTimers();
     };
   }, []);
 
   async function startGame(offset = 0) {
     setAudioError(null);
     setRunState("loading");
+    if (offset === 0) {
+      clearHitEffectTimers();
+      setHitEffects([]);
+    }
 
     try {
       await audio.preloadTrack(playerTrack);
@@ -186,6 +194,31 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
     setNoteStates(noteStatesRef.current);
     setStats(statsRef.current);
     setLastJudge(judgement);
+    if (state === "hit" && judgement !== "Miss") {
+      showHitEffect(note, judgement);
+    }
+  }
+
+  function showHitEffect(note: GameNote, judgement: Exclude<Judgement, "Miss">) {
+    const id = `hit-${note.id}-${hitEffectCounterRef.current}`;
+    hitEffectCounterRef.current += 1;
+    const effect: HitEffect = {
+      id,
+      lane: note.lane,
+      judgement,
+    };
+    setHitEffects((current) => [...current.slice(-12), effect]);
+
+    const timer = window.setTimeout(() => {
+      hitEffectTimersRef.current.delete(timer);
+      setHitEffects((current) => current.filter((item) => item.id !== id));
+    }, 620);
+    hitEffectTimersRef.current.add(timer);
+  }
+
+  function clearHitEffectTimers() {
+    hitEffectTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    hitEffectTimersRef.current.clear();
   }
 
   function markLateMisses(elapsed: number) {
@@ -248,6 +281,7 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
         currentTime={currentTime}
         noteStates={noteStates}
         visualOffsetMs={timing.noteVisualOffsetMs}
+        hitEffects={hitEffects}
       />
 
       {runState === "ready" || runState === "loading" ? (
