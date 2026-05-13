@@ -13,7 +13,7 @@ export function convertMidiTrackToSingleChart(track: MidiTrackInfo): GameChart {
         id: `single-${track.index}-${index}`,
         time: note.time,
         duration: note.duration,
-        type: isHold ? "hold" : "tap",
+        type: isHold ? ("hold" as const) : ("tap" as const),
         midiNotes: [note.midi],
         label: isHold ? "Hold" : laneLabelForMidi(note.midi),
         lane: isHold ? 3 : laneForMidi(note.midi),

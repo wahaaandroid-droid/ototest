@@ -62,7 +62,7 @@ export function parseMidiBuffer(buffer: ArrayBuffer, fallbackName: string): Pars
   const playerIndex = findSuggestedPlayerTrackIndex(tracks);
   const tracksWithRoles = tracks.map((track, index) => ({
     ...track,
-    role: index === playerIndex ? "player" : "auto",
+    role: (index === playerIndex ? "player" : "auto") as TrackRole,
   }));
 
   const durationFromNotes = Math.max(0, ...tracks.flatMap((track) => track.notes.map((note) => note.time + note.duration)));
