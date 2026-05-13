@@ -22,6 +22,7 @@
 
 * {
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
 }
 
 html,
@@ -35,6 +36,9 @@ body {
   min-width: 320px;
   min-height: 100vh;
   overflow-x: hidden;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 button,
@@ -44,7 +48,9 @@ select {
 }
 
 button {
-  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 button:disabled,
@@ -152,6 +158,12 @@ h1 {
 
 .upload-panel {
   max-width: 580px;
+}
+
+.sample-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .file-drop {
@@ -268,7 +280,7 @@ h1 {
 }
 
 .setup-controls {
-  grid-template-columns: minmax(210px, 0.7fr) 1.3fr;
+  grid-template-columns: minmax(210px, 0.65fr) minmax(260px, 1fr) 1.35fr;
   align-items: end;
   margin: 16px 0;
 }
@@ -281,6 +293,10 @@ h1 {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.06);
+}
+
+.segmented.three {
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .segmented button {
@@ -408,6 +424,9 @@ h1 {
     linear-gradient(180deg, rgba(35, 199, 183, 0.08), transparent 30%),
     #10131a;
   touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .game-hud {
@@ -516,11 +535,14 @@ h1 {
 .hit-line {
   position: absolute;
   right: 0;
-  bottom: 12%;
+  bottom: 10%;
   left: 0;
-  height: 3px;
-  background: var(--warm);
-  box-shadow: 0 0 18px rgba(243, 179, 77, 0.54);
+  height: 38px;
+  border-top: 2px solid rgba(255, 255, 255, 0.64);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.64);
+  background: rgba(243, 179, 77, 0.22);
+  box-shadow: 0 0 22px rgba(243, 179, 77, 0.38);
+  transform: translateY(50%);
 }
 
 .falling-note {
@@ -528,7 +550,6 @@ h1 {
   z-index: 3;
   display: grid;
   place-items: center;
-  min-height: 36px;
   border: 1px solid rgba(255, 255, 255, 0.4);
   border-radius: 8px;
   color: #07100f;
@@ -536,12 +557,15 @@ h1 {
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
   font-weight: 900;
   transform: translateY(-50%);
+  overflow: hidden;
 }
 
 .falling-note.hold {
   align-items: end;
+  min-height: 44px;
   padding-bottom: 8px;
   background: linear-gradient(180deg, rgba(113, 240, 208, 0.28), var(--accent-strong));
+  transform: none;
 }
 
 .falling-note.chord {
@@ -549,11 +573,33 @@ h1 {
 }
 
 .falling-note span {
+  position: relative;
+  z-index: 1;
   max-width: 100%;
   overflow: hidden;
   padding: 0 6px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.note-just-mark {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: #07100f;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55);
+}
+
+.falling-note.tap .note-just-mark,
+.falling-note.chord .note-just-mark {
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.falling-note.hold .note-just-mark {
+  bottom: 0;
+  height: 7px;
 }
 
 .input-buttons {
@@ -564,6 +610,9 @@ h1 {
 }
 
 .lane-button {
+  display: grid;
+  place-items: center;
+  gap: 2px;
   min-width: 0;
   min-height: 76px;
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -575,6 +624,29 @@ h1 {
   font-weight: 950;
   overflow-wrap: anywhere;
   touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.lane-button span {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lane-button kbd {
+  min-width: 26px;
+  padding: 2px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 5px;
+  color: var(--accent-strong);
+  background: rgba(0, 0, 0, 0.26);
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 900;
 }
 
 .lane-button:active {
@@ -693,6 +765,10 @@ h1 {
   }
 
   .timing-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .sample-list {
     grid-template-columns: 1fr;
   }
 

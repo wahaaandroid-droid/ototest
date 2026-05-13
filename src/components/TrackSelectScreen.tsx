@@ -1,13 +1,15 @@
-import type { MidiTrackInfo, ParsedMidiFile, PlayMode, TimingSettings, TrackRole } from "../game/types";
+import type { Difficulty, MidiTrackInfo, ParsedMidiFile, PlayMode, TimingSettings, TrackRole } from "../game/types";
 import { formatDuration } from "../utils/format";
 
 type TrackSelectScreenProps = {
   midi: ParsedMidiFile;
   mode: PlayMode;
+  difficulty: Difficulty;
   timing: TimingSettings;
   busyTrackId: string | null;
   audioError: string | null;
   onModeChange: (mode: PlayMode) => void;
+  onDifficultyChange: (difficulty: Difficulty) => void;
   onRoleChange: (trackId: string, role: TrackRole) => void;
   onPreview: (track: MidiTrackInfo) => void;
   onTimingChange: (timing: TimingSettings) => void;
@@ -18,10 +20,12 @@ type TrackSelectScreenProps = {
 export function TrackSelectScreen({
   midi,
   mode,
+  difficulty,
   timing,
   busyTrackId,
   audioError,
   onModeChange,
+  onDifficultyChange,
   onRoleChange,
   onPreview,
   onTimingChange,
@@ -57,6 +61,21 @@ export function TrackSelectScreen({
             </button>
             <button className={mode === "chord" ? "active" : ""} type="button" onClick={() => onModeChange("chord")}>
               コード
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <p className="section-label">Difficulty</p>
+          <div className="segmented three">
+            <button className={difficulty === "easy" ? "active" : ""} type="button" onClick={() => onDifficultyChange("easy")}>
+              やさしい
+            </button>
+            <button className={difficulty === "normal" ? "active" : ""} type="button" onClick={() => onDifficultyChange("normal")}>
+              ふつう
+            </button>
+            <button className={difficulty === "hard" ? "active" : ""} type="button" onClick={() => onDifficultyChange("hard")}>
+              むずかしい
             </button>
           </div>
         </div>

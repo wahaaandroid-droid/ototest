@@ -11,6 +11,7 @@ type NoteLaneProps = {
 };
 
 const APPROACH_SECONDS = 2.4;
+const NOTE_HEIGHT_PX = 38;
 
 export function NoteLane({ notes, laneLabels, currentTime, noteStates, visualOffsetMs }: NoteLaneProps) {
   const visibleNotes = getUpcomingNotes(notes, currentTime - visualOffsetMs / 1000, APPROACH_SECONDS);
@@ -30,28 +31,43 @@ export function NoteLane({ notes, laneLabels, currentTime, noteStates, visualOff
         const state = noteStates[note.id] ?? "pending";
         if (state !== "pending") return null;
 
-        const adjustedTime = note.time + visualOffsetMs / 1000;
-        const untilHit = adjustedTime - currentTime;
-        const progress = 1 - untilHit / APPROACH_SECONDS;
-        const y = Math.max(-10, Math.min(104, progress * 86 + 4));
+        const y = timeToYPercent(note.time + visualOffsetMs / 1000, currentTime);
         const laneWidth = 100 / laneLabels.length;
-        const holdHeight = note.type === "hold" ? Math.min(36, Math.max(12, (note.duration / APPROACH_SECONDS) * 78)) : 0;
+        const holdEndY = timeToYPercent(note.time + note.duration + visualOffsetMs / 1000, currentTime);
+        const holdTop = Math.min(y, holdEndY);
+        const holdHeight = Math.max(8, Math.abs(y - holdEndY));
+        const noteStyle =
+          note.type === "hold"
+            ? {
+                left: `calc(${laneWidth * note.lane}% + 6px)`,
+                width: `calc(${laneWidth}% - 12px)`,
+                top: `${holdTop}%`,
+                height: `${holdHeight}%`,
+              }
+            : {
+                left: `calc(${laneWidth * note.lane}% + 6px)`,
+                width: `calc(${laneWidth}% - 12px)`,
+                top: `${y}%`,
+                minHeight: NOTE_HEIGHT_PX,
+              };
 
         return (
           <div
             className={`falling-note ${note.type}`}
             key={note.id}
-            style={{
-              left: `calc(${laneWidth * note.lane}% + 6px)`,
-              width: `calc(${laneWidth}% - 12px)`,
-              top: `${y}%`,
-              height: note.type === "hold" ? `${holdHeight}%` : undefined,
-            }}
+            style={noteStyle}
           >
+            <i className="note-just-mark" aria-hidden="true" />
             <span>{note.label}</span>
           </div>
         );
       })}
     </div>
   );
+}
+
+function timeToYPercent(targetTime: number, currentTime: number): number {
+  const untilHit = targetTime - currentTime;
+  const progress = 1 - untilHit / APPROACH_SECONDS;
+  return Math.max(-12, Math.min(108, progress * 86 + 4));
 }

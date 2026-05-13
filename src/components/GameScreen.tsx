@@ -21,6 +21,7 @@ type GameScreenProps = {
 type RunState = "ready" | "loading" | "playing" | "paused" | "finished";
 
 type NoteState = "pending" | "hit" | "miss";
+const KEYBOARD_LABELS = ["A", "S", "D", "F", "J", "K"];
 
 export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, onBack }: GameScreenProps) {
   const [runState, setRunState] = useState<RunState>("ready");
@@ -39,6 +40,8 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
   const animationRef = useRef<number | null>(null);
   const activeHoldsRef = useRef<Map<number, ActiveVoice[]>>(new Map());
   const finishedRef = useRef(false);
+  const pressedKeysRef = useRef<Set<string>>(new Set());
+  const runStateRef = useRef<RunState>("ready");
 
   const remaining = Math.max(0, midi.duration - currentTime);
   const playableNotes = chart.notes.length;
@@ -52,7 +55,31 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
   );
 
   useEffect(() => {
+    runStateRef.current = runState;
+  }, [runState]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const lane = keyToLane(event.key, chart.laneLabels.length);
+      if (lane === null || pressedKeysRef.current.has(event.key.toLowerCase())) return;
+      event.preventDefault();
+      pressedKeysRef.current.add(event.key.toLowerCase());
+      handleLanePress(lane);
+    };
+    const handleKeyUp = (event: KeyboardEvent) => {
+      const lane = keyToLane(event.key, chart.laneLabels.length);
+      if (lane === null) return;
+      event.preventDefault();
+      pressedKeysRef.current.delete(event.key.toLowerCase());
+      handleLaneRelease(lane);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+
     return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
       if (animationRef.current !== null) cancelAnimationFrame(animationRef.current);
       schedulerRef.current?.stop();
       activeHoldsRef.current.forEach((voices) => voices.forEach((voice) => voice.stop()));
@@ -112,7 +139,7 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
   }
 
   function handleLanePress(lane: number) {
-    if (runState !== "playing") return;
+    if (runStateRef.current !== "playing") return;
 
     const inputTime = currentTimeRef.current + timing.inputJudgeOffsetMs / 1000;
     const candidate = findCandidateNote(chart.notes, noteStatesRef.current, lane, inputTime);
@@ -234,6 +261,7 @@ export function GameScreen({ midi, chart, playerTrack, audio, timing, onFinish, 
 
       <ChordButtons
         labels={chart.laneLabels}
+        keyboardLabels={KEYBOARD_LABELS}
         disabled={runState !== "playing"}
         onPress={handleLanePress}
         onRelease={handleLaneRelease}
@@ -269,4 +297,10 @@ function findCandidateNote(notes: GameNote[], states: Record<string, NoteState>,
   }
 
   return bestDiff <= 0.28 ? best : null;
+}
+
+function keyToLane(key: string, laneCount: number): number | null {
+  const normalized = key.toLowerCase();
+  const lane = KEYBOARD_LABELS.findIndex((label) => label.toLowerCase() === normalized);
+  return lane >= 0 && lane < laneCount ? lane : null;
 }

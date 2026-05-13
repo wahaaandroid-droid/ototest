@@ -1,13 +1,15 @@
 import type { ChangeEvent } from "react";
+import type { SampleSong } from "../data/sampleSongs";
 
 type StartScreenProps = {
   loading: boolean;
   error: string | null;
+  sampleSongs: SampleSong[];
   onFileSelect: (file: File) => void;
-  onLoadSample: () => void;
+  onLoadSample: (song: SampleSong) => void;
 };
 
-export function StartScreen({ loading, error, onFileSelect, onLoadSample }: StartScreenProps) {
+export function StartScreen({ loading, error, sampleSongs, onFileSelect, onLoadSample }: StartScreenProps) {
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) onFileSelect(file);
@@ -34,9 +36,13 @@ export function StartScreen({ loading, error, onFileSelect, onLoadSample }: Star
           <strong>{loading ? "読み込み中..." : "MIDIファイルを選択"}</strong>
           <span>.mid / .midi</span>
         </label>
-        <button className="secondary-button" type="button" onClick={onLoadSample} disabled={loading}>
-          サンプルMIDI
-        </button>
+        <div className="sample-list">
+          {sampleSongs.map((song) => (
+            <button className="secondary-button" type="button" key={song.url} onClick={() => onLoadSample(song)} disabled={loading}>
+              {song.title}
+            </button>
+          ))}
+        </div>
         {error && <p className="error-text">{error}</p>}
       </section>
     </main>

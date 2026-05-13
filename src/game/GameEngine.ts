@@ -1,13 +1,13 @@
-import type { GameChart, GameNote, PlayMode } from "./types";
+import type { Difficulty, GameChart, GameNote, PlayMode } from "./types";
 import { convertMidiTrackToChordChart, convertMidiTrackToSingleChart } from "../midi/convertMidiToGameNotes";
 import type { MidiTrackInfo } from "./types";
 
-export function buildGameChart(track: MidiTrackInfo, mode: PlayMode): GameChart {
+export function buildGameChart(track: MidiTrackInfo, mode: PlayMode, difficulty: Difficulty): GameChart {
   if (mode === "chord") {
-    return convertMidiTrackToChordChart(track);
+    return convertMidiTrackToChordChart(track, difficulty);
   }
 
-  return convertMidiTrackToSingleChart(track);
+  return convertMidiTrackToSingleChart(track, difficulty);
 }
 
 export function getUpcomingNotes(notes: GameNote[], currentTime: number, approachTime: number): GameNote[] {

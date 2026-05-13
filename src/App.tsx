@@ -5,8 +5,9 @@ import { ResultScreen } from "./components/ResultScreen";
 import { StartScreen } from "./components/StartScreen";
 import { TrackSelectScreen } from "./components/TrackSelectScreen";
 import { buildGameChart } from "./game/GameEngine";
-import type { GameChart, GameResult, MidiTrackInfo, ParsedMidiFile, PlayMode, TimingSettings, TrackRole } from "./game/types";
+import type { Difficulty, GameChart, GameResult, MidiTrackInfo, ParsedMidiFile, PlayMode, TimingSettings, TrackRole } from "./game/types";
 import { loadMidiFile, loadMidiFromUrl } from "./midi/loadMidi";
+import { SAMPLE_SONGS, type SampleSong } from "./data/sampleSongs";
 
 type Screen = "start" | "tracks" | "game" | "result";
 
@@ -20,6 +21,7 @@ function App() {
   const [screen, setScreen] = useState<Screen>("start");
   const [midi, setMidi] = useState<ParsedMidiFile | null>(null);
   const [mode, setMode] = useState<PlayMode>("single");
+  const [difficulty, setDifficulty] = useState<Difficulty>("normal");
   const [timing, setTiming] = useState<TimingSettings>(DEFAULT_TIMING);
   const [chart, setChart] = useState<GameChart | null>(null);
   const [result, setResult] = useState<GameResult | null>(null);
@@ -53,12 +55,12 @@ function App() {
     }
   }
 
-  async function handleSampleLoad() {
+  async function handleSampleLoad(song: SampleSong) {
     setLoading(true);
     setError(null);
 
     try {
-      const parsed = await loadMidiFromUrl("/midi/sample.mid", "Sample MIDI");
+      const parsed = await loadMidiFromUrl(song.url, song.title);
       setMidi(parsed);
       setChart(null);
       setResult(null);
@@ -106,7 +108,7 @@ function App() {
 
   function startGame() {
     if (!midi || !playerTrack) return;
-    const nextChart = buildGameChart(playerTrack, mode);
+    const nextChart = buildGameChart(playerTrack, mode, difficulty);
     setChart(nextChart);
     setResult(null);
     setScreen("game");
@@ -122,10 +124,12 @@ function App() {
       <TrackSelectScreen
         midi={midi}
         mode={mode}
+        difficulty={difficulty}
         timing={timing}
         busyTrackId={busyTrackId}
         audioError={audioError}
         onModeChange={setMode}
+        onDifficultyChange={setDifficulty}
         onRoleChange={updateTrackRole}
         onPreview={previewTrack}
         onTimingChange={setTiming}
@@ -166,7 +170,15 @@ function App() {
     );
   }
 
-  return <StartScreen loading={loading} error={error} onFileSelect={handleFile} onLoadSample={handleSampleLoad} />;
+  return (
+    <StartScreen
+      loading={loading}
+      error={error}
+      sampleSongs={SAMPLE_SONGS}
+      onFileSelect={handleFile}
+      onLoadSample={handleSampleLoad}
+    />
+  );
 }
 
 export default App;

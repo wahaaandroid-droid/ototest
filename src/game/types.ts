@@ -2,6 +2,8 @@ export type TrackRole = "auto" | "player" | "mute";
 
 export type PlayMode = "single" | "chord";
 
+export type Difficulty = "easy" | "normal" | "hard";
+
 export type Judgement = "Perfect" | "Great" | "Good" | "Miss";
 
 export type GameNoteType = "tap" | "hold" | "chord";
@@ -58,6 +60,7 @@ export type GameChart = {
   notes: GameNote[];
   laneLabels: string[];
   mode: PlayMode;
+  difficulty: Difficulty;
 };
 
 export type ScoreStats = {
