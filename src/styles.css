@@ -157,7 +157,13 @@ h1 {
 }
 
 .upload-panel {
-  max-width: 580px;
+  max-width: 760px;
+}
+
+.upload-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .sample-list {
@@ -195,6 +201,12 @@ h1 {
 
 .file-drop span {
   color: var(--ink-muted);
+}
+
+.mp3-only-drop {
+  background:
+    linear-gradient(135deg, rgba(243, 179, 77, 0.17), rgba(122, 168, 255, 0.08)),
+    var(--panel);
 }
 
 .primary-button,
@@ -1133,6 +1145,10 @@ h1 {
   }
 
   .sample-list {
+    grid-template-columns: 1fr;
+  }
+
+  .upload-grid {
     grid-template-columns: 1fr;
   }
 

@@ -3,12 +3,22 @@ import type { GameResult, ParsedMidiFile } from "../game/types";
 type ResultScreenProps = {
   midi: ParsedMidiFile;
   result: GameResult;
+  trackSelectLabel?: string;
+  newMidiLabel?: string;
   onRetry: () => void;
   onTrackSelect: () => void;
   onNewMidi: () => void;
 };
 
-export function ResultScreen({ midi, result, onRetry, onTrackSelect, onNewMidi }: ResultScreenProps) {
+export function ResultScreen({
+  midi,
+  result,
+  trackSelectLabel = "トラック選択",
+  newMidiLabel = "新しいMIDI",
+  onRetry,
+  onTrackSelect,
+  onNewMidi,
+}: ResultScreenProps) {
   return (
     <main className="result-screen">
       <section className="result-hero">
@@ -31,10 +41,10 @@ export function ResultScreen({ midi, result, onRetry, onTrackSelect, onNewMidi }
           もう一度
         </button>
         <button className="secondary-button" type="button" onClick={onTrackSelect}>
-          トラック選択
+          {trackSelectLabel}
         </button>
         <button className="ghost-button" type="button" onClick={onNewMidi}>
-          新しいMIDI
+          {newMidiLabel}
         </button>
       </div>
     </main>

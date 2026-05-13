@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { analyzeMp3ToSparkChart } from "./audio/analyzeMp3ToChart";
 import { WebAudioFontEngine } from "./audio/webAudioFontPlayer";
 import { GameScreen } from "./components/GameScreen";
 import { ResultScreen } from "./components/ResultScreen";
@@ -38,6 +39,7 @@ function App() {
   const [chart, setChart] = useState<GameChart | null>(null);
   const [gamePlayerTrack, setGamePlayerTrack] = useState<MidiTrackInfo | null>(null);
   const [backingAudio, setBackingAudio] = useState<BackingAudioFile | null>(null);
+  const [isMp3OnlySession, setIsMp3OnlySession] = useState(false);
   const [result, setResult] = useState<GameResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [busyTrackId, setBusyTrackId] = useState<string | null>(null);
@@ -77,6 +79,7 @@ function App() {
       setSelectedPartId(parsed.playableParts[0]?.id ?? null);
       setChart(null);
       setGamePlayerTrack(null);
+      setIsMp3OnlySession(false);
       setResult(null);
       setScreen("tracks");
     } catch (loadError) {
@@ -96,6 +99,7 @@ function App() {
       setSelectedPartId(parsed.playableParts[0]?.id ?? null);
       setChart(null);
       setGamePlayerTrack(null);
+      setIsMp3OnlySession(false);
       setResult(null);
       setScreen("tracks");
     } catch (loadError) {
@@ -162,6 +166,39 @@ function App() {
     });
   }
 
+  async function handleMp3OnlyFile(file: File) {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const analysis = await analyzeMp3ToSparkChart(file);
+      const nextChart = analysis.chart;
+      const duration = Math.max(1, analysis.duration);
+      const url = URL.createObjectURL(file);
+      const nextBackingAudio = { name: file.name, url };
+      const title = file.name.replace(/\.(mp3|mpeg)$/i, "") || "MP3 Auto Chart";
+      const nextMidi = buildMp3OnlyMidi(title, duration);
+      const nextPlayerTrack = buildMp3OnlyPlayerTrack(nextChart.notes.length);
+
+      setBackingAudio((current) => {
+        if (current) URL.revokeObjectURL(current.url);
+        return nextBackingAudio;
+      });
+      setMidi(nextMidi);
+      setSelectedPartId(null);
+      setMode("spark");
+      setChart(nextChart);
+      setGamePlayerTrack(nextPlayerTrack);
+      setIsMp3OnlySession(true);
+      setResult(null);
+      setScreen("game");
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "MP3を解析できませんでした。");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function previewTrack(track: MidiTrackInfo) {
     setBusyTrackId(track.id);
     setAudioError(null);
@@ -183,6 +220,27 @@ function App() {
     setGamePlayerTrack(chartTrack);
     setResult(null);
     setScreen("game");
+  }
+
+  function retryGame() {
+    if (isMp3OnlySession && midi && chart && gamePlayerTrack) {
+      setResult(null);
+      setScreen("game");
+      return;
+    }
+
+    startGame();
+  }
+
+  function resetToStart() {
+    setMidi(null);
+    setSelectedPartId(null);
+    setChart(null);
+    setGamePlayerTrack(null);
+    setIsMp3OnlySession(false);
+    clearBackingAudio();
+    setResult(null);
+    setScreen("start");
   }
 
   function finishGame(nextResult: GameResult) {
@@ -225,7 +283,13 @@ function App() {
         backingAudio={mode === "spark" ? backingAudio : null}
         timing={timing}
         onFinish={finishGame}
-        onBack={() => setScreen("tracks")}
+        onBack={() => {
+          if (isMp3OnlySession) {
+            resetToStart();
+          } else {
+            setScreen("tracks");
+          }
+        }}
       />
     );
   }
@@ -235,17 +299,11 @@ function App() {
       <ResultScreen
         midi={midi}
         result={result}
-        onRetry={startGame}
-        onTrackSelect={() => setScreen("tracks")}
-        onNewMidi={() => {
-          setMidi(null);
-          setSelectedPartId(null);
-          setChart(null);
-          setGamePlayerTrack(null);
-          clearBackingAudio();
-          setResult(null);
-          setScreen("start");
-        }}
+        trackSelectLabel={isMp3OnlySession ? "曲選択" : "トラック選択"}
+        newMidiLabel={isMp3OnlySession ? "新しい曲" : "新しいMIDI"}
+        onRetry={retryGame}
+        onTrackSelect={() => (isMp3OnlySession ? resetToStart() : setScreen("tracks"))}
+        onNewMidi={resetToStart}
       />
     );
   }
@@ -256,9 +314,37 @@ function App() {
       error={error}
       sampleSongs={SAMPLE_SONGS}
       onFileSelect={handleFile}
+      onMp3OnlySelect={handleMp3OnlyFile}
       onLoadSample={handleSampleLoad}
     />
   );
+}
+
+function buildMp3OnlyMidi(name: string, duration: number): ParsedMidiFile {
+  return {
+    name,
+    bpm: 0,
+    duration,
+    trackCount: 0,
+    tracks: [],
+    playableParts: [],
+  };
+}
+
+function buildMp3OnlyPlayerTrack(noteCount: number): MidiTrackInfo {
+  return {
+    id: "mp3-auto-notes",
+    index: 0,
+    name: "MP3 Auto Notes",
+    instrumentName: "Spark SFX",
+    instrumentNumber: null,
+    channel: null,
+    isDrum: false,
+    notes: [],
+    noteCount,
+    rangeText: "-",
+    role: "player",
+  };
 }
 
 function buildMergedPlayerTrack(tracks: MidiTrackInfo[], primaryTrack: MidiTrackInfo, part: PlayablePart | null): MidiTrackInfo {
